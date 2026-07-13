@@ -6,12 +6,18 @@ import { supabase } from "@/lib/supabase";
 type Exercise = { name: string; detail: string };
 
 const SPORT_TAGS = ["General", "Baseball", "Soccer", "Basketball", "Football", "Gymnastics"];
+const DIFFICULTIES = [
+  { key: "beginner", label: "Beginner" },
+  { key: "intermediate", label: "Intermediate" },
+  { key: "advanced", label: "Advanced" },
+];
 
 export default function NewWorkoutPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [sportTag, setSportTag] = useState("General");
+  const [difficulty, setDifficulty] = useState("intermediate");
   const [exercises, setExercises] = useState<Exercise[]>([{ name: "", detail: "" }]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,6 +53,7 @@ export default function NewWorkoutPage() {
         title: title.trim(),
         subtitle: subtitle.trim() || null,
         sport_tag: sportTag === "General" ? null : sportTag,
+        difficulty,
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
@@ -93,6 +100,22 @@ export default function NewWorkoutPage() {
               }`}
             >
               {tag}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase">Difficulty</label>
+        <div className="flex gap-2 my-2">
+          {DIFFICULTIES.map((d) => (
+            <button
+              type="button"
+              key={d.key}
+              onClick={() => setDifficulty(d.key)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                difficulty === d.key ? "bg-plum border-plum text-white" : "bg-cream border-cream text-plumsoft"
+              }`}
+            >
+              {d.label}
             </button>
           ))}
         </div>

@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const AVATARS = ["🦊", "🐢", "🦁", "🐼", "🦉", "🐸"];
+const SPORTS = ["Baseball", "Soccer", "Basketball", "Football", "Gymnastics", "Swimming"];
+const STRENGTH_LEVELS = [
+  { key: "beginner", label: "Just starting out" },
+  { key: "intermediate", label: "Pretty active" },
+  { key: "advanced", label: "Very athletic" },
+];
 
 export default function AddChildPage() {
   const router = useRouter();
@@ -11,8 +17,14 @@ export default function AddChildPage() {
   const [age, setAge] = useState(8);
   const [avatar, setAvatar] = useState(AVATARS[0]);
   const [pin, setPin] = useState("");
+  const [sports, setSports] = useState<string[]>([]);
+  const [strengthLevel, setStrengthLevel] = useState("beginner");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  function toggleSport(sport: string) {
+    setSports((prev) => (prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]));
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +41,8 @@ export default function AddChildPage() {
         age,
         avatar_emoji: avatar,
         pin,
+        sport_tags: sports,
+        strength_level: strengthLevel,
       });
       if (insertError) throw insertError;
       router.push("/parent");
@@ -76,6 +90,39 @@ export default function AddChildPage() {
               }`}
             >
               {a}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase mt-3 block">Sports they play (optional)</label>
+        <div className="flex gap-2 flex-wrap my-2">
+          {SPORTS.map((s) => (
+            <button
+              type="button"
+              key={s}
+              onClick={() => toggleSport(s)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                sports.includes(s) ? "bg-sky border-sky text-white" : "bg-cream border-cream text-plumsoft"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase mt-3 block">Activity level</label>
+        <p className="text-[11px] text-plumsoft mb-2">Helps us know what workouts to show them — not a judgment, just a starting point.</p>
+        <div className="flex flex-col gap-2 mb-4">
+          {STRENGTH_LEVELS.map((lvl) => (
+            <button
+              type="button"
+              key={lvl.key}
+              onClick={() => setStrengthLevel(lvl.key)}
+              className={`text-left text-sm font-bold px-3 py-2.5 rounded-xl border-2 ${
+                strengthLevel === lvl.key ? "bg-grass/20 border-grass text-plum" : "bg-cream border-cream text-plumsoft"
+              }`}
+            >
+              {lvl.label}
             </button>
           ))}
         </div>
