@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type Child = { id: string; name: string; avatar_emoji: string };
+type Child = { id: string; name: string; avatar_emoji: string; parent_id: string };
 type DailyLog = {
   id?: string;
   child_id: string;
@@ -14,10 +14,18 @@ type DailyLog = {
   sleep_done: boolean;
   mood: string | null;
 };
+type Workout = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  sport_tag: string | null;
+  exercises: { name: string; detail: string }[];
+};
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const XP_PER_HABIT = 15;
 const XP_STREAK_BONUS = 25;
+const XP_PER_WORKOUT = 30;
 
 export default function KidDashboard() {
   const router = useRouter();
@@ -30,6 +38,9 @@ export default function KidDashboard() {
   const [streak, setStreak] = useState(0);
   const [celebrate, setCelebrate] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [completedTodayIds, setCompletedTodayIds] = useState<Set<string>>(new Set());
+  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
 
   useEffect(() => {
     const authed = sessionStorage.getItem(`kid-session-${childId}`);
@@ -45,7 +56,7 @@ export default function KidDashboard() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji")
+      .select("id, name, avatar_emoji, parent_id")
       .eq("id", childId)
       .single();
     setChild(childData);
@@ -67,9 +78,30 @@ export default function KidDashboard() {
     }
     setLog(logData);
 
+    if (childData) {
+      const { data: workoutData } = await supabase
+        .from("workouts")
+        .select("id, title, subtitle, sport_tag, exercises")
+        .eq("parent_id", childData.parent_id)
+        .order("created_at", { ascending: false });
+      setWorkouts(workoutData || []);
+      await refreshCompletedToday();
+    }
+
     await refreshXp();
     await refreshStreak();
     setLoading(false);
+  }
+
+  async function refreshCompletedToday() {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const { data } = await supabase
+      .from("workout_completions")
+      .select("workout_id")
+      .eq("child_id", childId)
+      .gte("completed_at", startOfDay.toISOString());
+    setCompletedTodayIds(new Set((data || []).map((r: any) => r.workout_id)));
   }
 
   async function refreshXp() {
@@ -139,6 +171,14 @@ export default function KidDashboard() {
     if (!log) return;
     setLog({ ...log, mood });
     await supabase.from("daily_logs").update({ mood }).eq("id", log.id);
+  }
+
+  async function completeWorkout(workout: Workout) {
+    await supabase.from("workout_completions").insert({ child_id: childId, workout_id: workout.id });
+    await awardXp("workout", XP_PER_WORKOUT);
+    await refreshCompletedToday();
+    triggerCelebrate();
+    setSelectedWorkout(null);
   }
 
   function triggerCelebrate() {
@@ -241,15 +281,85 @@ export default function KidDashboard() {
       </div>
 
       {allDone && (
-        <div className="bg-gradient-to-r from-grass to-sky text-white rounded-2xl p-4 text-center shadow-lg">
+        <div className="bg-gradient-to-r from-grass to-sky text-white rounded-2xl p-4 text-center shadow-lg mb-6">
           <div className="text-2xl mb-1">🏆</div>
           <div className="font-display font-bold">Adventure Complete!</div>
           <div className="text-xs opacity-90">You did every mission today. Amazing work.</div>
         </div>
       )}
 
-      <p className="text-center text-[10px] text-plumsoft/70 mt-8">
-        Coach workouts and lessons are coming soon — this demo shows the core daily habit loop.
+      {workouts.length > 0 && (
+        <>
+          <div className="font-display font-bold text-plum text-sm mb-3">Workout Library</div>
+          <div className="flex flex-col gap-3 mb-6">
+            {workouts.map((w) => {
+              const done = completedTodayIds.has(w.id);
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => setSelectedWorkout(w)}
+                  className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow text-left"
+                >
+                  <div
+                    className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
+                      done ? "bg-grass border-grass text-white" : "bg-white border-cream"
+                    }`}
+                  >
+                    {done ? "✓" : "🏋️"}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-display font-bold text-sm text-plum">{w.title}</div>
+                    <div className="text-xs text-plumsoft font-semibold">
+                      {w.subtitle || `${w.exercises.length} exercises`}
+                      {done ? " · Done today" : ""}
+                    </div>
+                  </div>
+                  {w.sport_tag && (
+                    <span className="text-[9px] font-bold bg-sun/30 text-plum px-2 py-1 rounded-full">{w.sport_tag}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {selectedWorkout && (
+        <div className="fixed inset-0 bg-plum/40 flex items-end justify-center z-50" onClick={() => setSelectedWorkout(null)}>
+          <div
+            className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-display font-bold text-lg text-plum mb-0.5">{selectedWorkout.title}</div>
+            {selectedWorkout.subtitle && (
+              <div className="text-xs text-plumsoft font-semibold mb-4">{selectedWorkout.subtitle}</div>
+            )}
+            <div className="flex flex-col gap-2 mb-5">
+              {selectedWorkout.exercises.map((ex, i) => (
+                <div key={i} className="flex justify-between items-center bg-cream rounded-xl px-3 py-2.5">
+                  <span className="text-sm font-bold text-plum">{ex.name}</span>
+                  <span className="text-xs font-bold text-plumsoft">{ex.detail}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => completeWorkout(selectedWorkout)}
+              className="w-full bg-coral text-white font-display font-bold py-3 rounded-xl mb-2"
+            >
+              I finished this! (+{XP_PER_WORKOUT} XP)
+            </button>
+            <button
+              onClick={() => setSelectedWorkout(null)}
+              className="w-full text-plumsoft font-bold text-sm py-2"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-center text-[10px] text-plumsoft/70 mt-4">
+        Lessons are coming soon — this shows the daily habit loop and your workout library.
       </p>
     </main>
   );
