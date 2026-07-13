@@ -18,6 +18,7 @@ export default function NewWorkoutPage() {
   const [subtitle, setSubtitle] = useState("");
   const [sportTag, setSportTag] = useState("General");
   const [difficulty, setDifficulty] = useState("intermediate");
+  const [isShared, setIsShared] = useState(false);
   const [exercises, setExercises] = useState<Exercise[]>([{ name: "", detail: "" }]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,6 +55,7 @@ export default function NewWorkoutPage() {
         subtitle: subtitle.trim() || null,
         sport_tag: sportTag === "General" ? null : sportTag,
         difficulty,
+        is_shared: isShared,
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
@@ -145,6 +147,21 @@ export default function NewWorkoutPage() {
         <button type="button" onClick={addExercise} className="text-xs font-bold text-sky mb-5">
           + Add exercise
         </button>
+
+        <label className="flex items-center gap-2.5 bg-cream rounded-xl px-3.5 py-3 mb-5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isShared}
+            onChange={(e) => setIsShared(e.target.checked)}
+            className="w-4 h-4"
+          />
+          <span className="text-xs font-bold text-plum">
+            Share with other families
+            <span className="block font-semibold text-plumsoft mt-0.5">
+              Any parent using the app can show this to their kids too — not just yours
+            </span>
+          </span>
+        </label>
 
         {error && <p className="text-coral text-sm font-semibold mb-4">{error}</p>}
 

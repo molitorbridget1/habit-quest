@@ -11,6 +11,8 @@ type Workout = {
   sport_tag: string | null;
   difficulty: string;
   exercises: { name: string; detail: string }[];
+  is_shared?: boolean;
+  parent_id?: string;
 };
 type Completion = {
   id: string;
@@ -84,8 +86,8 @@ export default function KidWorkoutsPage() {
     if (childData) {
       const { data: workoutData } = await supabase
         .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises")
-        .eq("parent_id", childData.parent_id)
+        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id")
+        .or(`parent_id.eq.${childData.parent_id},is_shared.eq.true`)
         .order("created_at", { ascending: false });
       setWorkouts(workoutData || []);
     }
@@ -231,6 +233,9 @@ export default function KidWorkoutsPage() {
                     <span className="text-[9px] font-bold bg-sun/30 text-plum px-2 py-0.5 rounded-full">{w.sport_tag}</span>
                   )}
                   <span className="text-[9px] font-bold uppercase text-plumsoft">{w.difficulty}</span>
+                  {w.is_shared && w.parent_id !== child.parent_id && (
+                    <span className="text-[8px] font-bold text-sky">from another family</span>
+                  )}
                 </div>
               </button>
             );
