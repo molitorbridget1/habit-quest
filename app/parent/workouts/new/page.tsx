@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -27,6 +27,16 @@ export default function NewWorkoutPage() {
   const [isShared, setIsShared] = useState(false);
   const [ageGroups, setAgeGroups] = useState<string[]>([]);
   const [coachType, setCoachType] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return;
+      const { data: parentRow } = await supabase.from("parents").select("is_admin").eq("id", userData.user.id).single();
+      setIsAdmin(!!parentRow?.is_admin);
+    })();
+  }, []);
 
   function toggleAgeGroup(ag: string) {
     setAgeGroups((prev) => (prev.includes(ag) ? prev.filter((a) => a !== ag) : [...prev, ag]));
@@ -162,52 +172,56 @@ export default function NewWorkoutPage() {
           + Add exercise
         </button>
 
-        <label className="text-xs font-bold text-plumsoft uppercase">Age groups (optional — blank means all ages)</label>
-        <div className="flex gap-2 flex-wrap my-2">
-          {AGE_GROUPS.map((ag) => (
-            <button
-              type="button"
-              key={ag}
-              onClick={() => toggleAgeGroup(ag)}
-              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
-                ageGroups.includes(ag) ? "bg-grass border-grass text-white" : "bg-cream border-cream text-plumsoft"
-              }`}
-            >
-              {ag}
-            </button>
-          ))}
-        </div>
+        {isAdmin && (
+          <>
+            <label className="text-xs font-bold text-plumsoft uppercase">Age groups (optional — blank means all ages)</label>
+            <div className="flex gap-2 flex-wrap my-2">
+              {AGE_GROUPS.map((ag) => (
+                <button
+                  type="button"
+                  key={ag}
+                  onClick={() => toggleAgeGroup(ag)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                    ageGroups.includes(ag) ? "bg-grass border-grass text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  {ag}
+                </button>
+              ))}
+            </div>
 
-        <label className="text-xs font-bold text-plumsoft uppercase">Tag as a coach library (optional)</label>
-        <div className="flex gap-2 my-2">
-          {COACH_TYPES.map((c) => (
-            <button
-              type="button"
-              key={c.key}
-              onClick={() => setCoachType(c.key)}
-              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
-                coachType === c.key ? "bg-sky border-sky text-white" : "bg-cream border-cream text-plumsoft"
-              }`}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+            <label className="text-xs font-bold text-plumsoft uppercase">Tag as a coach library (optional)</label>
+            <div className="flex gap-2 my-2">
+              {COACH_TYPES.map((c) => (
+                <button
+                  type="button"
+                  key={c.key}
+                  onClick={() => setCoachType(c.key)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                    coachType === c.key ? "bg-sky border-sky text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
 
-        <label className="flex items-center gap-2.5 bg-cream rounded-xl px-3.5 py-3 mb-5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isShared}
-            onChange={(e) => setIsShared(e.target.checked)}
-            className="w-4 h-4"
-          />
-          <span className="text-xs font-bold text-plum">
-            Share with other families
-            <span className="block font-semibold text-plumsoft mt-0.5">
-              Any parent using the app can show this to their kids too — not just yours
-            </span>
-          </span>
-        </label>
+            <label className="flex items-center gap-2.5 bg-cream rounded-xl px-3.5 py-3 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isShared}
+                onChange={(e) => setIsShared(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-xs font-bold text-plum">
+                Share with other families
+                <span className="block font-semibold text-plumsoft mt-0.5">
+                  Any parent using the app can show this to their kids too — not just yours
+                </span>
+              </span>
+            </label>
+          </>
+        )}
 
         {error && <p className="text-coral text-sm font-semibold mb-4">{error}</p>}
 

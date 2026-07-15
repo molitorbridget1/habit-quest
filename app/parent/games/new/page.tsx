@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -16,6 +16,23 @@ export default function NewGamePage() {
   const [explanation, setExplanation] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        router.push("/login");
+        return;
+      }
+      const { data: parentRow } = await supabase.from("parents").select("is_admin").eq("id", userData.user.id).single();
+      if (!parentRow?.is_admin) {
+        router.push("/parent");
+        return;
+      }
+      setChecked(true);
+    })();
+  }, [router]);
 
   function updateChoiceText(i: number, text: string) {
     const next = [...choices];
@@ -68,6 +85,9 @@ export default function NewGamePage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6 py-10">
+      {!checked ? (
+        <p className="text-plumsoft">Checking access…</p>
+      ) : (
       <form onSubmit={handleSave} className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7">
         <h1 className="font-display text-xl font-bold text-plum mb-1">Add a brain game</h1>
         <p className="text-sm text-plumsoft mb-5">A quick multiple-choice question about nutrition or fitness.</p>
@@ -146,6 +166,7 @@ export default function NewGamePage() {
           {loading ? "Saving…" : "Save game"}
         </button>
       </form>
+      )}
     </main>
   );
 }

@@ -27,6 +27,11 @@ export default function GamesPage() {
       router.push("/login");
       return;
     }
+    const { data: parentRow } = await supabase.from("parents").select("is_admin").eq("id", userData.user.id).single();
+    if (!parentRow?.is_admin) {
+      router.push("/parent");
+      return;
+    }
     const { data } = await supabase
       .from("daily_games")
       .select("id, category, question, choices, explanation")

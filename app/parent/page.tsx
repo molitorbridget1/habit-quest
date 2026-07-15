@@ -13,6 +13,7 @@ export default function ParentDashboard() {
   const [weekCounts, setWeekCounts] = useState<Record<string, number>>({});
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemStatus, setRedeemStatus] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   async function handleRedeem(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +41,13 @@ export default function ParentDashboard() {
         .order("created_at", { ascending: true });
 
       setChildren(kids || []);
+
+      const { data: parentRow } = await supabase
+        .from("parents")
+        .select("is_admin")
+        .eq("id", userData.user.id)
+        .single();
+      setIsAdmin(!!parentRow?.is_admin);
 
       if (kids && kids.length > 0) {
         const sevenDaysAgo = new Date();
@@ -132,12 +140,14 @@ export default function ParentDashboard() {
         🏋️ Manage workouts
       </Link>
 
-      <Link
-        href="/parent/games"
-        className="block text-center bg-white border-2 border-sky text-sky font-display font-bold py-3 rounded-xl mb-3"
-      >
-        🎮 Manage daily games
-      </Link>
+      {isAdmin && (
+        <Link
+          href="/parent/games"
+          className="block text-center bg-white border-2 border-sky text-sky font-display font-bold py-3 rounded-xl mb-3"
+        >
+          🎮 Manage daily games
+        </Link>
+      )}
 
       <Link
         href="/kid"
