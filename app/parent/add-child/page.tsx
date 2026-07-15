@@ -10,6 +10,12 @@ const STRENGTH_LEVELS = [
   { key: "intermediate", label: "Pretty active" },
   { key: "advanced", label: "Very athletic" },
 ];
+const COACHING_MODES = [
+  { key: "parent_lead", label: "Parent Lead", sub: "I'll build their workouts myself" },
+  { key: "coach_bee", label: "Coach Bee", sub: "Cardio & fun base workouts" },
+  { key: "coach_erick", label: "Coach Erick", sub: "Sports-based agility, strength & speed" },
+  { key: "invite_coach", label: "Invite a coach", sub: "Their real coach builds workouts in the app" },
+];
 
 export default function AddChildPage() {
   const router = useRouter();
@@ -19,8 +25,38 @@ export default function AddChildPage() {
   const [pin, setPin] = useState("");
   const [sports, setSports] = useState<string[]>([]);
   const [strengthLevel, setStrengthLevel] = useState("beginner");
+  const [coachingMode, setCoachingMode] = useState("parent_lead");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+
+  function generateCode() {
+    return Math.random().toString(36).slice(2, 8).toUpperCase();
+  }
+
+  if (inviteCode) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-6">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7 text-center">
+          <div className="text-4xl mb-3">🎟️</div>
+          <h1 className="font-display text-lg font-bold text-plum mb-2">Share this code with their coach</h1>
+          <div className="font-display text-3xl font-extrabold tracking-widest text-coral bg-cream rounded-xl py-4 mb-4">
+            {inviteCode}
+          </div>
+          <p className="text-xs text-plumsoft mb-5">
+            Have your coach create an account, then enter this code on their dashboard under "Redeem Coach Code."
+            Whatever workouts they build will automatically show up for {name || "your child"}.
+          </p>
+          <button
+            onClick={() => router.push("/parent")}
+            className="w-full bg-coral text-white font-display font-bold py-3 rounded-xl"
+          >
+            Done
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   function toggleSport(sport: string) {
     setSports((prev) => (prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]));
@@ -35,6 +71,8 @@ export default function AddChildPage() {
       if (!userData.user) throw new Error("Not logged in.");
       if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
 
+      const code = coachingMode === "invite_coach" ? generateCode() : null;
+
       const { error: insertError } = await supabase.from("children").insert({
         parent_id: userData.user.id,
         name,
@@ -43,9 +81,16 @@ export default function AddChildPage() {
         pin,
         sport_tags: sports,
         strength_level: strengthLevel,
+        coaching_mode: coachingMode,
+        invite_code: code,
       });
       if (insertError) throw insertError;
-      router.push("/parent");
+
+      if (code) {
+        setInviteCode(code);
+      } else {
+        router.push("/parent");
+      }
     } catch (err: any) {
       setError(err.message || "Something went wrong.");
     } finally {
@@ -71,7 +116,7 @@ export default function AddChildPage() {
         <input
           type="number"
           min={5}
-          max={14}
+          max={18}
           className="w-full border-2 border-cream bg-cream rounded-xl px-3 py-2 mb-4 mt-1 text-sm font-semibold"
           value={age}
           onChange={(e) => setAge(Number(e.target.value))}
@@ -123,6 +168,23 @@ export default function AddChildPage() {
               }`}
             >
               {lvl.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase mt-3 block">Who will manage their workouts?</label>
+        <div className="flex flex-col gap-2 mb-4">
+          {COACHING_MODES.map((m) => (
+            <button
+              type="button"
+              key={m.key}
+              onClick={() => setCoachingMode(m.key)}
+              className={`text-left px-3 py-2.5 rounded-xl border-2 ${
+                coachingMode === m.key ? "bg-coral/10 border-coral" : "bg-cream border-cream"
+              }`}
+            >
+              <div className="text-sm font-bold text-plum">{m.label}</div>
+              <div className="text-[11px] text-plumsoft font-semibold">{m.sub}</div>
             </button>
           ))}
         </div>

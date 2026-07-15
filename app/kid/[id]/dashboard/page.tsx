@@ -3,21 +3,38 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type Child = { id: string; name: string; avatar_emoji: string; parent_id: string };
+type Child = {
+  id: string;
+  name: string;
+  avatar_emoji: string;
+  parent_id: string;
+  difficulty_filter: string | null;
+};
 type DailyLog = {
   id?: string;
   child_id: string;
   log_date: string;
   water_cups: number;
-  movement_done: boolean;
   veggie_done: boolean;
-  sleep_done: boolean;
+  protein_selected: string[];
   mood: string | null;
 };
+type WorkoutTeaser = { id: string; title: string; subtitle: string | null };
+type GameChoice = { text: string; correct: boolean };
+type DailyGame = { id: string; question: string; choices: GameChoice[]; explanation: string | null };
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const XP_PER_HABIT = 15;
-const XP_STREAK_BONUS = 25;
+const XP_PER_GAME = 10;
+
+const PROTEIN_OPTIONS = [
+  { key: "chicken", emoji: "🍗", label: "Chicken" },
+  { key: "steak", emoji: "🥩", label: "Steak" },
+  { key: "egg", emoji: "🥚", label: "Egg" },
+  { key: "cheese", emoji: "🧀", label: "Cheese" },
+  { key: "milk", emoji: "🥛", label: "Milk" },
+  { key: "yogurt", emoji: "🍦", label: "Yogurt" },
+];
 
 export default function KidDashboard() {
   const router = useRouter();
@@ -30,6 +47,14 @@ export default function KidDashboard() {
   const [streak, setStreak] = useState(0);
   const [celebrate, setCelebrate] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [weekHabitDays, setWeekHabitDays] = useState(0);
+  const [weekWorkouts, setWeekWorkouts] = useState(0);
+  const [upNext, setUpNext] = useState<WorkoutTeaser | null>(null);
+
+  const [game, setGame] = useState<DailyGame | null>(null);
+  const [gameDone, setGameDone] = useState(false);
+  const [gameFeedback, setGameFeedback] = useState<{ correct: boolean; explanation: string | null } | null>(null);
 
   useEffect(() => {
     const authed = sessionStorage.getItem(`kid-session-${childId}`);
@@ -45,7 +70,7 @@ export default function KidDashboard() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id")
+      .select("id, name, avatar_emoji, parent_id, difficulty_filter")
       .eq("id", childId)
       .single();
     setChild(childData);
@@ -69,6 +94,9 @@ export default function KidDashboard() {
 
     await refreshXp();
     await refreshStreak();
+    await loadWeekSummary();
+    if (childData) await loadUpNext(childData);
+    await loadDailyGame();
     setLoading(false);
   }
 
@@ -81,7 +109,7 @@ export default function KidDashboard() {
   async function refreshStreak() {
     const { data } = await supabase
       .from("daily_logs")
-      .select("log_date, water_cups, movement_done, veggie_done, sleep_done")
+      .select("log_date, water_cups, veggie_done, protein_selected")
       .eq("child_id", childId)
       .order("log_date", { ascending: false })
       .limit(30);
@@ -92,7 +120,7 @@ export default function KidDashboard() {
     for (let i = 0; i < data.length; i++) {
       const expected = cursor.toISOString().slice(0, 10);
       const row = data.find((r: any) => r.log_date === expected);
-      const anyDone = row && (row.water_cups > 0 || row.movement_done || row.veggie_done || row.sleep_done);
+      const anyDone = row && (row.water_cups > 0 || row.veggie_done || (row.protein_selected || []).length > 0);
       if (anyDone) {
         count++;
         cursor.setDate(cursor.getDate() - 1);
@@ -106,30 +134,125 @@ export default function KidDashboard() {
     setStreak(count);
   }
 
+  async function loadWeekSummary() {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { data: logs } = await supabase
+      .from("daily_logs")
+      .select("water_cups, veggie_done, protein_selected")
+      .eq("child_id", childId)
+      .gte("log_date", sevenDaysAgo.toISOString().slice(0, 10));
+    const daysWithHabit = (logs || []).filter(
+      (l: any) => l.water_cups > 0 || l.veggie_done || (l.protein_selected || []).length > 0
+    ).length;
+    setWeekHabitDays(daysWithHabit);
+
+    const { count } = await supabase
+      .from("workout_completions")
+      .select("id", { count: "exact", head: true })
+      .eq("child_id", childId)
+      .gte("completed_at", sevenDaysAgo.toISOString());
+    setWeekWorkouts(count || 0);
+  }
+
+  async function loadUpNext(childData: Child) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const { data: completedToday } = await supabase
+      .from("workout_completions")
+      .select("workout_id")
+      .eq("child_id", childId)
+      .gte("completed_at", startOfDay.toISOString());
+    const doneIds = new Set((completedToday || []).map((r: any) => r.workout_id));
+
+    let query = supabase
+      .from("workouts")
+      .select("id, title, subtitle, difficulty, parent_id, is_shared, coach_type")
+      .or(`parent_id.eq.${childData.parent_id},and(is_shared.eq.true,coach_type.is.null)`)
+      .order("created_at", { ascending: true });
+
+    const { data } = await query;
+    let candidates = (data || []).filter((w: any) => !doneIds.has(w.id));
+    if (childData.difficulty_filter) {
+      const matching = candidates.filter((w: any) => w.difficulty === childData.difficulty_filter);
+      if (matching.length > 0) candidates = matching;
+    }
+    setUpNext(candidates[0] || null);
+  }
+
+  async function loadDailyGame() {
+    const { data: games } = await supabase.from("daily_games").select("id, question, choices, explanation");
+    if (!games || games.length === 0) return;
+    const dayIndex = Math.floor(Date.now() / 86400000) % games.length;
+    const todaysGame = games[dayIndex] as any;
+    setGame(todaysGame);
+
+    const { data: completion } = await supabase
+      .from("game_completions")
+      .select("was_correct")
+      .eq("child_id", childId)
+      .eq("completed_date", todayStr())
+      .maybeSingle();
+
+    if (completion) {
+      setGameDone(true);
+      setGameFeedback({ correct: completion.was_correct, explanation: todaysGame.explanation });
+    }
+  }
+
+  async function answerGame(choice: GameChoice) {
+    if (!game || gameDone) return;
+    setGameFeedback({ correct: choice.correct, explanation: game.explanation });
+    setGameDone(true);
+    await supabase.from("game_completions").insert({
+      child_id: childId,
+      game_id: game.id,
+      completed_date: todayStr(),
+      was_correct: choice.correct,
+    });
+    await awardXp("daily_game", XP_PER_GAME);
+    if (choice.correct) triggerCelebrate();
+  }
+
   async function awardXp(source: string, amount: number) {
     await supabase.from("xp_events").insert({ child_id: childId, source, amount });
     await refreshXp();
   }
 
-  async function toggleHabit(field: "movement_done" | "veggie_done" | "sleep_done") {
+  async function toggleVeggie() {
     if (!log) return;
-    const newVal = !log[field];
-    const updated = { ...log, [field]: newVal };
+    const newVal = !log.veggie_done;
+    const updated = { ...log, veggie_done: newVal };
     setLog(updated);
-    await supabase.from("daily_logs").update({ [field]: newVal }).eq("id", log.id);
+    await supabase.from("daily_logs").update({ veggie_done: newVal }).eq("id", log.id);
     if (newVal) {
-      await awardXp(field, XP_PER_HABIT);
+      await awardXp("veggie_done", XP_PER_HABIT);
       triggerCelebrate();
     }
   }
 
-  async function addWater() {
+  async function toggleProtein(key: string) {
+    if (!log) return;
+    const current = log.protein_selected || [];
+    const wasEmpty = current.length === 0;
+    const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+    const updated = { ...log, protein_selected: next };
+    setLog(updated);
+    await supabase.from("daily_logs").update({ protein_selected: next }).eq("id", log.id);
+    if (wasEmpty && next.length > 0) {
+      await awardXp("protein", XP_PER_HABIT);
+      triggerCelebrate();
+    }
+  }
+
+  async function adjustWater(delta: number) {
     if (!log) return;
     const wasZero = log.water_cups === 0;
-    const updated = { ...log, water_cups: log.water_cups + 1 };
+    const newCups = Math.max(0, log.water_cups + delta);
+    const updated = { ...log, water_cups: newCups };
     setLog(updated);
-    await supabase.from("daily_logs").update({ water_cups: updated.water_cups }).eq("id", log.id);
-    if (wasZero) {
+    await supabase.from("daily_logs").update({ water_cups: newCups }).eq("id", log.id);
+    if (wasZero && newCups > 0) {
       await awardXp("water", XP_PER_HABIT);
       triggerCelebrate();
     }
@@ -157,14 +280,7 @@ export default function KidDashboard() {
 
   const level = Math.floor(totalXp / 100) + 1;
   const xpInLevel = totalXp % 100;
-  const allDone = log.water_cups > 0 && log.movement_done && log.veggie_done && log.sleep_done;
-
-  const nodes = [
-    { key: "water", label: "Drink water", sub: `${log.water_cups} cup${log.water_cups === 1 ? "" : "s"}`, icon: "💧", done: log.water_cups > 0, onTap: addWater },
-    { key: "veggie", label: "Eat a veggie", sub: log.veggie_done ? "Done today" : "Not yet", icon: "🥦", done: log.veggie_done, onTap: () => toggleHabit("veggie_done") },
-    { key: "movement", label: "Move your body", sub: log.movement_done ? "Done today" : "Not yet", icon: "🏃", done: log.movement_done, onTap: () => toggleHabit("movement_done") },
-    { key: "sleep", label: "Log good sleep", sub: log.sleep_done ? "Done today" : "Not yet", icon: "😴", done: log.sleep_done, onTap: () => toggleHabit("sleep_done") },
-  ];
+  const allDone = log.water_cups > 0 && log.veggie_done && (log.protein_selected || []).length > 0;
 
   return (
     <main className="min-h-screen px-5 py-6 max-w-md mx-auto">
@@ -195,6 +311,55 @@ export default function KidDashboard() {
       </div>
       <div className="text-[11px] font-bold text-plumsoft mb-5">{xpInLevel} / 100 XP to Level {level + 1}</div>
 
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="bg-white rounded-2xl p-3.5 shadow text-center">
+          <div className="font-display font-extrabold text-2xl text-grass">{weekHabitDays}/7</div>
+          <div className="text-[10px] text-plumsoft font-bold">habit days this week</div>
+        </div>
+        <div className="bg-white rounded-2xl p-3.5 shadow text-center">
+          <div className="font-display font-extrabold text-2xl text-coral">{weekWorkouts}</div>
+          <div className="text-[10px] text-plumsoft font-bold">workouts this week</div>
+        </div>
+      </div>
+
+      {upNext && (
+        <button
+          onClick={() => router.push(`/kid/${childId}/workouts`)}
+          className="w-full flex items-center gap-3 bg-white rounded-2xl p-3.5 shadow text-left mb-5"
+        >
+          <div className="w-10 h-10 min-w-[2.5rem] rounded-full bg-sky/20 flex items-center justify-center text-lg">⏭️</div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-plumsoft uppercase">Up next</div>
+            <div className="font-display font-bold text-sm text-plum">{upNext.title}</div>
+          </div>
+        </button>
+      )}
+
+      {game && (
+        <div className="bg-white rounded-2xl p-4 shadow mb-5">
+          <div className="text-xs font-display font-bold text-plumsoft mb-2">🎮 Today's Brain Game</div>
+          <div className="text-sm font-bold text-plum mb-3">{game.question}</div>
+          {!gameDone ? (
+            <div className="flex flex-col gap-2">
+              {game.choices.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => answerGame(c)}
+                  className="text-left text-sm font-bold bg-cream rounded-xl px-3 py-2.5"
+                >
+                  {c.text}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className={`rounded-xl px-3 py-2.5 text-sm font-semibold ${gameFeedback?.correct ? "bg-grass/15 text-plum" : "bg-sun/20 text-plum"}`}>
+              {gameFeedback?.correct ? "Nice job! " : "Good try! "}
+              {gameFeedback?.explanation}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl p-3.5 shadow mb-5">
         <div className="text-xs font-display font-bold text-plumsoft mb-2">How do you feel today?</div>
         <div className="flex gap-2">
@@ -218,26 +383,61 @@ export default function KidDashboard() {
       </div>
 
       <div className="font-display font-bold text-plum text-sm mb-3">Today's Adventure</div>
-      <div className="flex flex-col gap-3 mb-6">
-        {nodes.map((n) => (
-          <button
-            key={n.key}
-            onClick={n.onTap}
-            className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow text-left"
-          >
-            <div
-              className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
-                n.done ? "bg-grass border-grass text-white" : "bg-white border-cream"
-              }`}
-            >
-              {n.done ? "✓" : n.icon}
-            </div>
-            <div>
-              <div className="font-display font-bold text-sm text-plum">{n.label}</div>
-              <div className="text-xs text-plumsoft font-semibold">{n.sub}</div>
-            </div>
-          </button>
-        ))}
+
+      <div className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow mb-3">
+        <div
+          className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
+            log.water_cups > 0 ? "bg-grass border-grass text-white" : "bg-white border-cream"
+          }`}
+        >
+          {log.water_cups > 0 ? "✓" : "💧"}
+        </div>
+        <div className="flex-1">
+          <div className="font-display font-bold text-sm text-plum">Drink water</div>
+          <div className="text-xs text-plumsoft font-semibold">{log.water_cups} cup{log.water_cups === 1 ? "" : "s"}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => adjustWater(-1)} className="w-8 h-8 rounded-full bg-cream font-display font-bold text-plum">−</button>
+          <button onClick={() => adjustWater(1)} className="w-8 h-8 rounded-full bg-sky text-white font-display font-bold">+</button>
+        </div>
+      </div>
+
+      <button
+        onClick={toggleVeggie}
+        className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 shadow text-left mb-3"
+      >
+        <div
+          className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
+            log.veggie_done ? "bg-grass border-grass text-white" : "bg-white border-cream"
+          }`}
+        >
+          {log.veggie_done ? "✓" : "🥦"}
+        </div>
+        <div>
+          <div className="font-display font-bold text-sm text-plum">Eat a veggie</div>
+          <div className="text-xs text-plumsoft font-semibold">{log.veggie_done ? "Done today" : "Not yet"}</div>
+        </div>
+      </button>
+
+      <div className="bg-white rounded-2xl p-3.5 shadow mb-6">
+        <div className="font-display font-bold text-sm text-plum mb-0.5">What protein did you have today?</div>
+        <div className="text-xs text-plumsoft font-semibold mb-3">Pick all that apply</div>
+        <div className="flex gap-2.5 flex-wrap">
+          {PROTEIN_OPTIONS.map((p) => {
+            const selected = (log.protein_selected || []).includes(p.key);
+            return (
+              <button
+                key={p.key}
+                onClick={() => toggleProtein(p.key)}
+                className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center border-2 ${
+                  selected ? "bg-grass/20 border-grass" : "bg-cream border-cream"
+                }`}
+              >
+                <span className="text-lg">{p.emoji}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {allDone && (

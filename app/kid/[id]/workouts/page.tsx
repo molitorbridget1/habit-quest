@@ -3,7 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type Child = { id: string; name: string; avatar_emoji: string; parent_id: string };
+type Child = {
+  id: string;
+  name: string;
+  avatar_emoji: string;
+  parent_id: string;
+  age: number;
+  coaching_mode: string;
+  difficulty_filter: string | null;
+};
 type Workout = {
   id: string;
   title: string;
@@ -13,7 +21,16 @@ type Workout = {
   exercises: { name: string; detail: string }[];
   is_shared?: boolean;
   parent_id?: string;
+  age_groups?: string[];
+  coach_type?: string | null;
 };
+
+function ageBucket(age: number): string {
+  if (age <= 7) return "5-7";
+  if (age <= 10) return "8-10";
+  if (age <= 13) return "11-13";
+  return "14-18";
+}
 type Completion = {
   id: string;
   completed_at: string;
@@ -44,6 +61,7 @@ export default function KidWorkoutsPage() {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [celebrate, setCelebrate] = useState(false);
+  const [filterChoice, setFilterChoice] = useState("all");
 
   const [timerSeconds, setTimerSeconds] = useState<number | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
@@ -78,23 +96,74 @@ export default function KidWorkoutsPage() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id")
+      .select("id, name, avatar_emoji, parent_id, age, coaching_mode, difficulty_filter")
       .eq("id", childId)
       .single();
     setChild(childData);
+    setFilterChoice(childData?.difficulty_filter || "all");
 
     if (childData) {
-      const { data: workoutData } = await supabase
+      // 1. Workouts this child's own parent built
+      const ownQuery = supabase
         .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id")
-        .or(`parent_id.eq.${childData.parent_id},is_shared.eq.true`)
-        .order("created_at", { ascending: false });
-      setWorkouts(workoutData || []);
+        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+        .eq("parent_id", childData.parent_id);
+
+      // 2. General shared workouts (not tied to a specific coach persona)
+      const sharedQuery = supabase
+        .from("workouts")
+        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+        .eq("is_shared", true)
+        .is("coach_type", null);
+
+      const queries = [ownQuery, sharedQuery];
+
+      // 3. If this child is on a named coach persona, pull that coach's tagged library
+      if (childData.coaching_mode === "coach_bee" || childData.coaching_mode === "coach_erick") {
+        const coachKey = childData.coaching_mode === "coach_bee" ? "bee" : "erick";
+        queries.push(
+          supabase
+            .from("workouts")
+            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+            .eq("coach_type", coachKey)
+        );
+      }
+
+      // 4. If a real coach has been linked via invite code, pull their workouts too
+      const { data: links } = await supabase.from("coach_links").select("coach_parent_id").eq("child_id", childId);
+      const coachParentIds = (links || []).map((l: any) => l.coach_parent_id);
+      if (coachParentIds.length > 0) {
+        queries.push(
+          supabase
+            .from("workouts")
+            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+            .in("parent_id", coachParentIds)
+        );
+      }
+
+      const results = await Promise.all(queries);
+      const merged = new Map<string, Workout>();
+      results.forEach((r) => (r.data || []).forEach((w: any) => merged.set(w.id, w)));
+
+      const bucket = ageBucket(childData.age);
+      const filtered = Array.from(merged.values()).filter(
+        (w) => !w.age_groups || w.age_groups.length === 0 || w.age_groups.includes(bucket)
+      );
+      filtered.sort((a, b) => a.title.localeCompare(b.title));
+      setWorkouts(filtered);
     }
 
     await refreshCompletedToday();
     await refreshHistory();
     setLoading(false);
+  }
+
+  async function updateFilter(choice: string) {
+    setFilterChoice(choice);
+    await supabase
+      .from("children")
+      .update({ difficulty_filter: choice === "all" ? null : choice })
+      .eq("id", childId);
   }
 
   async function refreshCompletedToday() {
@@ -205,8 +274,25 @@ export default function KidWorkoutsPage() {
 
       {tab === "library" && (
         <div className="flex flex-col gap-3">
-          {workouts.length === 0 && <p className="text-plumsoft text-sm text-center mt-6">No workouts yet — ask a grown-up to add some.</p>}
-          {workouts.map((w) => {
+          <div className="flex gap-2 flex-wrap mb-1">
+            {["all", "beginner", "intermediate", "advanced"].map((f) => (
+              <button
+                key={f}
+                onClick={() => updateFilter(f)}
+                className={`text-[11px] font-bold px-3 py-1.5 rounded-full border-2 capitalize ${
+                  filterChoice === f ? "bg-plum border-plum text-white" : "bg-white border-cream text-plumsoft"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          {workouts.filter((w) => filterChoice === "all" || w.difficulty === filterChoice).length === 0 && (
+            <p className="text-plumsoft text-sm text-center mt-6">No workouts match this filter yet.</p>
+          )}
+          {workouts
+            .filter((w) => filterChoice === "all" || w.difficulty === filterChoice)
+            .map((w) => {
             const done = completedTodayIds.has(w.id);
             return (
               <button

@@ -11,6 +11,12 @@ const DIFFICULTIES = [
   { key: "intermediate", label: "Intermediate" },
   { key: "advanced", label: "Advanced" },
 ];
+const AGE_GROUPS = ["5-7", "8-10", "11-13", "14-18"];
+const COACH_TYPES = [
+  { key: "", label: "None" },
+  { key: "bee", label: "Coach Bee" },
+  { key: "erick", label: "Coach Erick" },
+];
 
 export default function NewWorkoutPage() {
   const router = useRouter();
@@ -19,6 +25,12 @@ export default function NewWorkoutPage() {
   const [sportTag, setSportTag] = useState("General");
   const [difficulty, setDifficulty] = useState("intermediate");
   const [isShared, setIsShared] = useState(false);
+  const [ageGroups, setAgeGroups] = useState<string[]>([]);
+  const [coachType, setCoachType] = useState("");
+
+  function toggleAgeGroup(ag: string) {
+    setAgeGroups((prev) => (prev.includes(ag) ? prev.filter((a) => a !== ag) : [...prev, ag]));
+  }
   const [exercises, setExercises] = useState<Exercise[]>([{ name: "", detail: "" }]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -56,6 +68,8 @@ export default function NewWorkoutPage() {
         sport_tag: sportTag === "General" ? null : sportTag,
         difficulty,
         is_shared: isShared,
+        age_groups: ageGroups,
+        coach_type: coachType || null,
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
@@ -147,6 +161,38 @@ export default function NewWorkoutPage() {
         <button type="button" onClick={addExercise} className="text-xs font-bold text-sky mb-5">
           + Add exercise
         </button>
+
+        <label className="text-xs font-bold text-plumsoft uppercase">Age groups (optional — blank means all ages)</label>
+        <div className="flex gap-2 flex-wrap my-2">
+          {AGE_GROUPS.map((ag) => (
+            <button
+              type="button"
+              key={ag}
+              onClick={() => toggleAgeGroup(ag)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                ageGroups.includes(ag) ? "bg-grass border-grass text-white" : "bg-cream border-cream text-plumsoft"
+              }`}
+            >
+              {ag}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase">Tag as a coach library (optional)</label>
+        <div className="flex gap-2 my-2">
+          {COACH_TYPES.map((c) => (
+            <button
+              type="button"
+              key={c.key}
+              onClick={() => setCoachType(c.key)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                coachType === c.key ? "bg-sky border-sky text-white" : "bg-cream border-cream text-plumsoft"
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
 
         <label className="flex items-center gap-2.5 bg-cream rounded-xl px-3.5 py-3 mb-5 cursor-pointer">
           <input

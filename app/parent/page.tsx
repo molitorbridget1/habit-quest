@@ -11,6 +11,20 @@ export default function ParentDashboard() {
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekCounts, setWeekCounts] = useState<Record<string, number>>({});
+  const [redeemCode, setRedeemCode] = useState("");
+  const [redeemStatus, setRedeemStatus] = useState("");
+
+  async function handleRedeem(e: React.FormEvent) {
+    e.preventDefault();
+    setRedeemStatus("Checking…");
+    const { data, error } = await supabase.rpc("redeem_coach_code", { code: redeemCode.trim().toUpperCase() });
+    if (error || !data) {
+      setRedeemStatus("That code didn't match — double check with the parent who sent it.");
+    } else {
+      setRedeemStatus("You're linked! Build a workout and it'll show up for that child.");
+      setRedeemCode("");
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -89,10 +103,41 @@ export default function ParentDashboard() {
       ))}
 
       {children.length > 0 && (
-        <Link href="/parent/add-child" className="block text-center text-sm font-bold text-sky mb-6">
+        <Link href="/parent/add-child" className="block text-center text-sm font-bold text-sky mb-3">
           + Add another child
         </Link>
       )}
+
+      <div className="bg-white rounded-2xl p-4 shadow mb-3">
+        <div className="font-display font-bold text-sm text-plum mb-1">Redeem Coach Code</div>
+        <div className="text-xs text-plumsoft font-semibold mb-2">Got a code from a parent? Enter it to link your account as their coach.</div>
+        <form onSubmit={handleRedeem} className="flex gap-2">
+          <input
+            className="flex-1 border-2 border-cream bg-cream rounded-xl px-3 py-2 text-sm font-bold tracking-widest uppercase"
+            placeholder="ABC123"
+            value={redeemCode}
+            onChange={(e) => setRedeemCode(e.target.value)}
+          />
+          <button type="submit" className="bg-plum text-white font-display font-bold px-4 rounded-xl text-xs">
+            Redeem
+          </button>
+        </form>
+        {redeemStatus && <p className="text-xs font-semibold text-plumsoft mt-2">{redeemStatus}</p>}
+      </div>
+
+      <Link
+        href="/parent/workouts"
+        className="block text-center bg-white border-2 border-coral text-coral font-display font-bold py-3 rounded-xl mb-3"
+      >
+        🏋️ Manage workouts
+      </Link>
+
+      <Link
+        href="/parent/games"
+        className="block text-center bg-white border-2 border-sky text-sky font-display font-bold py-3 rounded-xl mb-3"
+      >
+        🎮 Manage daily games
+      </Link>
 
       <Link
         href="/kid"
