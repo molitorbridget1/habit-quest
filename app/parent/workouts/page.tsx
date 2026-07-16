@@ -11,6 +11,7 @@ type Workout = {
   sport_tag: string | null;
   difficulty: string;
   is_shared: boolean;
+  assigned_child_id: string | null;
   exercises: { name: string; detail: string }[];
 };
 
@@ -31,7 +32,7 @@ export default function WorkoutsPage() {
     }
     const { data } = await supabase
       .from("workouts")
-      .select("id, title, subtitle, sport_tag, difficulty, is_shared, exercises")
+      .select("id, title, subtitle, sport_tag, difficulty, is_shared, assigned_child_id, exercises")
       .eq("parent_id", userData.user.id)
       .order("created_at", { ascending: false });
     setWorkouts(data || []);
@@ -78,6 +79,9 @@ export default function WorkoutsPage() {
           <span className="inline-block text-[9px] font-bold uppercase text-plumsoft mt-1">{w.difficulty}</span>
           {w.is_shared && (
             <span className="inline-block text-[9px] font-bold text-sky ml-2">🌐 Shared with all families</span>
+          )}
+          {w.assigned_child_id && (
+            <span className="inline-block text-[9px] font-bold text-grass ml-2">🎯 Assigned to a coached kid</span>
           )}
           <div className="mt-2 text-xs text-plumsoft">
             {w.exercises.map((e, i) => (

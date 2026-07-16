@@ -18,13 +18,16 @@ export default function ParentDashboard() {
   async function handleRedeem(e: React.FormEvent) {
     e.preventDefault();
     setRedeemStatus("Checking…");
-    const { data, error } = await supabase.rpc("redeem_coach_code", { code: redeemCode.trim().toUpperCase() });
+    const code = redeemCode.trim().toUpperCase();
+    const { data, error } = await supabase.rpc("redeem_coach_code", { code });
     if (error || !data) {
-      setRedeemStatus("That code didn't match — double check with the parent who sent it.");
-    } else {
-      setRedeemStatus("You're linked! Build a workout and it'll show up for that child.");
-      setRedeemCode("");
+      setRedeemStatus("That code didn't match — double check with the parent who sent it (codes are case-sensitive-looking but we uppercase automatically, so just check for typos).");
+      return;
     }
+    const { data: coached } = await supabase.rpc("get_coached_children");
+    const linkedNames = (coached || []).map((c: any) => c.name).join(", ");
+    setRedeemStatus(`Linked! You're now coaching: ${linkedNames || "…"}. Check your Coaching tab.`);
+    setRedeemCode("");
   }
 
   useEffect(() => {
@@ -95,14 +98,19 @@ export default function ParentDashboard() {
 
       {children.map((c) => (
         <div key={c.id} className="bg-white rounded-2xl p-5 shadow mb-3">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 rounded-full bg-sun/30 flex items-center justify-center text-2xl border-2 border-white shadow">
-              {c.avatar_emoji}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-sun/30 flex items-center justify-center text-2xl border-2 border-white shadow">
+                {c.avatar_emoji}
+              </div>
+              <div>
+                <div className="font-display font-bold text-plum">{c.name}</div>
+                <div className="text-xs text-plumsoft font-semibold">Age {c.age}</div>
+              </div>
             </div>
-            <div>
-              <div className="font-display font-bold text-plum">{c.name}</div>
-              <div className="text-xs text-plumsoft font-semibold">Age {c.age}</div>
-            </div>
+            <Link href={`/parent/children/${c.id}/edit`} className="text-[10px] font-bold text-plumsoft">
+              ⚙️ Edit
+            </Link>
           </div>
           <div className="text-xs text-plumsoft font-semibold">
             {weekCounts[c.id] || 0} habits completed this week
@@ -132,6 +140,13 @@ export default function ParentDashboard() {
         </form>
         {redeemStatus && <p className="text-xs font-semibold text-plumsoft mt-2">{redeemStatus}</p>}
       </div>
+
+      <Link
+        href="/parent/coaching"
+        className="block text-center bg-white border-2 border-grass text-grass font-display font-bold py-3 rounded-xl mb-3"
+      >
+        🧑‍🏫 Coaching
+      </Link>
 
       <Link
         href="/parent/workouts"

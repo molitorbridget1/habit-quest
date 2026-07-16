@@ -43,6 +43,9 @@ function NewWorkoutPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [childName, setChildName] = useState<string | null>(null);
   const [scheduledDays, setScheduledDays] = useState<string[]>([]);
+  const [ownKids, setOwnKids] = useState<{ id: string; name: string; avatar_emoji: string }[]>([]);
+  const [coachedKids, setCoachedKids] = useState<{ id: string; name: string }[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string>("all");
 
   function toggleDay(d: string) {
     setScheduledDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -55,10 +58,18 @@ function NewWorkoutPage() {
       const { data: parentRow } = await supabase.from("parents").select("is_admin").eq("id", userData.user.id).single();
       setIsAdmin(!!parentRow?.is_admin);
 
+      const { data: coached } = await supabase.rpc("get_coached_children");
+      setCoachedKids((coached || []).map((c: any) => ({ id: c.id, name: c.name })));
+
       if (forChild) {
-        const { data: coached } = await supabase.rpc("get_coached_children");
         const match = (coached || []).find((c: any) => c.id === forChild);
         setChildName(match?.name || "this child");
+      } else {
+        const { data: kids } = await supabase
+          .from("children")
+          .select("id, name, avatar_emoji")
+          .eq("parent_id", userData.user.id);
+        setOwnKids(kids || []);
       }
     })();
   }, [forChild]);
@@ -103,18 +114,21 @@ function NewWorkoutPage() {
       if (cleanExercises.length === 0) throw new Error("Add at least one exercise.");
       if (!title.trim()) throw new Error("Give the workout a name.");
 
+      const targetChildId = forChild || (selectedTarget !== "all" ? selectedTarget : null);
+      const isSpecificTarget = !!targetChildId;
+
       const { error: insertError } = await supabase.from("workouts").insert({
         parent_id: userData.user.id,
         title: title.trim(),
         subtitle: subtitle.trim() || null,
         sport_tag: sportTag === "General" ? null : sportTag,
         difficulty,
-        is_shared: forChild ? false : isShared,
-        age_groups: forChild ? [] : ageGroups,
-        coach_type: forChild ? null : (coachType || null),
+        is_shared: isSpecificTarget ? false : isShared,
+        age_groups: isSpecificTarget ? [] : ageGroups,
+        coach_type: isSpecificTarget ? null : (coachType || null),
         video_url: videoUrl.trim() || null,
-        assigned_child_id: forChild || null,
-        scheduled_days: forChild ? scheduledDays : [],
+        assigned_child_id: targetChildId,
+        scheduled_days: isSpecificTarget ? scheduledDays : [],
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
@@ -131,11 +145,58 @@ function NewWorkoutPage() {
       <form onSubmit={handleSave} className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7">
         <h1 className="font-display text-xl font-bold text-plum mb-1">Build a workout</h1>
         {forChild ? (
-          <p className="text-sm text-plumsoft mb-5">
+          <p className="text-sm text-plumsoft mb-3">
             Building for <span className="font-bold text-coral">{childName || "…"}</span> — this goes to them only, never shared elsewhere.
           </p>
+        ) : selectedTarget !== "all" ? (
+          <p className="text-sm text-plumsoft mb-3">
+            This workout will go to just that one kid, not your whole family library.
+          </p>
         ) : (
-          <p className="text-sm text-plumsoft mb-5">Name it something fun — kids pick these from their adventure map.</p>
+          <p className="text-sm text-plumsoft mb-3">Name it something fun — kids pick these from their adventure map.</p>
+        )}
+
+        {!forChild && (ownKids.length > 0 || coachedKids.length > 0) && (
+          <>
+            <label className="text-xs font-bold text-plumsoft uppercase">Who is this for?</label>
+            <div className="flex gap-2 flex-wrap my-2 mb-4">
+              {ownKids.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTarget("all")}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                    selectedTarget === "all" ? "bg-plum border-plum text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  All my kids
+                </button>
+              )}
+              {ownKids.map((k) => (
+                <button
+                  type="button"
+                  key={k.id}
+                  onClick={() => setSelectedTarget(k.id)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                    selectedTarget === k.id ? "bg-plum border-plum text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  {k.avatar_emoji} {k.name}
+                </button>
+              ))}
+              {coachedKids.map((k) => (
+                <button
+                  type="button"
+                  key={k.id}
+                  onClick={() => setSelectedTarget(k.id)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
+                    selectedTarget === k.id ? "bg-grass border-grass text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  🧑‍🏫 {k.name}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         <label className="text-xs font-bold text-plumsoft uppercase">Workout name</label>
@@ -242,7 +303,7 @@ function NewWorkoutPage() {
           + Add exercise
         </button>
 
-        {forChild && (
+        {(forChild || selectedTarget !== "all") && (
           <>
             <label className="text-xs font-bold text-plumsoft uppercase">Schedule it (optional)</label>
             <p className="text-[10px] text-plumsoft mb-2">Pick which days this shows up on their calendar — like programming a training week.</p>
@@ -263,7 +324,7 @@ function NewWorkoutPage() {
           </>
         )}
 
-        {isAdmin && !forChild && (
+        {isAdmin && !forChild && selectedTarget === "all" && (
           <>
             <label className="text-xs font-bold text-plumsoft uppercase">Age groups (optional — blank means all ages)</label>
             <div className="flex gap-2 flex-wrap my-2">
