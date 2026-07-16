@@ -178,7 +178,7 @@ export default function NewWorkoutPage() {
             )}
           </div>
         ))}
-        <button type="button" onClick={addExercise} className="text-xs font-bold text-sky mb-5">
+        <button type="button" onClick={addExercise} className="block text-xs font-bold text-sky mb-5">
           + Add exercise
         </button>
 
@@ -206,7 +206,10 @@ export default function NewWorkoutPage() {
                 <button
                   type="button"
                   key={c.key}
-                  onClick={() => setCoachType(c.key)}
+                  onClick={() => {
+                    setCoachType(c.key);
+                    if (c.key) setIsShared(true);
+                  }}
                   className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 ${
                     coachType === c.key ? "bg-sky border-sky text-white" : "bg-cream border-cream text-plumsoft"
                   }`}
