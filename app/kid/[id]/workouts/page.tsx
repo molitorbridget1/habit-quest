@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useEffect, useRef, useState, Suspense } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 type Child = {
@@ -47,9 +47,19 @@ function parseSeconds(detail: string): number | null {
 }
 
 export default function KidWorkoutsPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen flex items-center justify-center text-plumsoft">Loading…</main>}>
+      <KidWorkoutsInner />
+    </Suspense>
+  );
+}
+
+function KidWorkoutsInner() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const childId = params.id as string;
+  const openId = searchParams.get("open");
 
   const [child, setChild] = useState<Child | null>(null);
   const [tab, setTab] = useState<"library" | "history">("library");
@@ -91,6 +101,14 @@ export default function KidWorkoutsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerRunning]);
+
+  useEffect(() => {
+    if (openId && workouts.length > 0 && !selectedWorkout) {
+      const match = workouts.find((w) => w.id === openId);
+      if (match) openWorkout(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, workouts]);
 
   async function load() {
     setLoading(true);
@@ -250,6 +268,11 @@ export default function KidWorkoutsPage() {
         </div>
         <button onClick={() => router.push(`/kid/${childId}/dashboard`)} className="text-xs font-bold text-plumsoft">
           ← Dashboard
+        </button>
+      </div>
+      <div className="text-right -mt-3 mb-3">
+        <button onClick={() => router.push("/parent")} className="text-[10px] font-bold text-plumsoft">
+          Parent view →
         </button>
       </div>
 

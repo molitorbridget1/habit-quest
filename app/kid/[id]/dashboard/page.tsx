@@ -33,7 +33,7 @@ const PROTEIN_OPTIONS = [
   { key: "egg", emoji: "🥚", label: "Egg" },
   { key: "cheese", emoji: "🧀", label: "Cheese" },
   { key: "milk", emoji: "🥛", label: "Milk" },
-  { key: "yogurt", emoji: "🍦", label: "Yogurt" },
+  { key: "yogurt", emoji: "🥣", label: "Yogurt" },
 ];
 
 export default function KidDashboard() {
@@ -302,6 +302,7 @@ export default function KidDashboard() {
         </div>
         <div className="flex items-center gap-2">
           <div className="bg-white rounded-full px-2.5 py-1 text-xs font-extrabold shadow">🔥 {streak}</div>
+          <button onClick={() => router.push("/parent")} className="text-[10px] font-bold text-plumsoft">Parent</button>
           <button onClick={handleSwitchProfile} className="text-[10px] font-bold text-plumsoft">Switch</button>
         </div>
       </div>
@@ -324,7 +325,7 @@ export default function KidDashboard() {
 
       {upNext && (
         <button
-          onClick={() => router.push(`/kid/${childId}/workouts`)}
+          onClick={() => router.push(`/kid/${childId}/workouts?open=${upNext.id}`)}
           className="w-full flex items-center gap-3 bg-white rounded-2xl p-3.5 shadow text-left mb-5"
         >
           <div className="w-10 h-10 min-w-[2.5rem] rounded-full bg-sky/20 flex items-center justify-center text-lg">⏭️</div>
