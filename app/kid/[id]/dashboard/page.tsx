@@ -26,7 +26,15 @@ type DailyLog = {
 };
 type WorkoutTeaser = { id: string; title: string; subtitle: string | null };
 type GameChoice = { text: string; correct: boolean };
-type DailyGame = { id: string; question: string; choices: GameChoice[]; explanation: string | null };
+type GameItem = { label: string; emoji: string; match: boolean };
+type DailyGame = {
+  id: string;
+  game_type: "quiz" | "sort";
+  question: string;
+  choices: GameChoice[] | null;
+  items: GameItem[] | null;
+  explanation: string | null;
+};
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const XP_PER_HABIT = 15;
@@ -60,6 +68,7 @@ export default function KidDashboard() {
   const [game, setGame] = useState<DailyGame | null>(null);
   const [gameDone, setGameDone] = useState(false);
   const [gameFeedback, setGameFeedback] = useState<{ correct: boolean; explanation: string | null } | null>(null);
+  const [selectedSortItems, setSelectedSortItems] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const authed = sessionStorage.getItem(`kid-session-${childId}`);
@@ -101,7 +110,7 @@ export default function KidDashboard() {
     await refreshStreak();
     await loadWeekSummary();
     if (childData) await loadUpNext(childData);
-    await loadDailyGame();
+    if (childData) await loadDailyGame(childData);
     setLoading(false);
   }
 
@@ -205,8 +214,12 @@ export default function KidDashboard() {
     setUpNext(candidates[0] || null);
   }
 
-  async function loadDailyGame() {
-    const { data: games } = await supabase.from("daily_games").select("id, question, choices, explanation");
+  async function loadDailyGame(childData: Child) {
+    const tier = computeAge(childData.birthdate, childData.age) <= 10 ? "younger" : "older";
+    const { data: games } = await supabase
+      .from("daily_games")
+      .select("id, game_type, question, choices, items, explanation")
+      .or(`age_tier.is.null,age_tier.eq.${tier}`);
     if (!games || games.length === 0) return;
     const dayIndex = Math.floor(Date.now() / 86400000) % games.length;
     const todaysGame = games[dayIndex] as any;
@@ -237,6 +250,29 @@ export default function KidDashboard() {
     });
     await awardXp("daily_game", XP_PER_GAME);
     if (choice.correct) triggerCelebrate();
+  }
+
+  function toggleSortItem(i: number) {
+    if (gameDone) return;
+    const next = new Set(selectedSortItems);
+    if (next.has(i)) next.delete(i);
+    else next.add(i);
+    setSelectedSortItems(next);
+  }
+
+  async function submitSortGame() {
+    if (!game || gameDone || !game.items) return;
+    const allCorrect = game.items.every((it, i) => selectedSortItems.has(i) === it.match);
+    setGameFeedback({ correct: allCorrect, explanation: game.explanation });
+    setGameDone(true);
+    await supabase.from("game_completions").insert({
+      child_id: childId,
+      game_id: game.id,
+      completed_date: todayStr(),
+      was_correct: allCorrect,
+    });
+    await awardXp("daily_game", XP_PER_GAME);
+    if (allCorrect) triggerCelebrate();
   }
 
   async function awardXp(source: string, amount: number) {
@@ -364,20 +400,48 @@ export default function KidDashboard() {
 
       {game && (
         <div className="bg-white rounded-2xl p-4 shadow mb-5">
-          <div className="text-xs font-display font-bold text-plumsoft mb-2">🎮 Today's Brain Game</div>
+          <div className="text-xs font-display font-bold text-plumsoft mb-2">
+            🎮 Today's {game.game_type === "sort" ? "Tap & Sort" : "Brain Game"}
+          </div>
           <div className="text-sm font-bold text-plum mb-3">{game.question}</div>
+
           {!gameDone ? (
-            <div className="flex flex-col gap-2">
-              {game.choices.map((c, i) => (
+            game.game_type === "sort" && game.items ? (
+              <>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {game.items.map((it, i) => (
+                    <button
+                      key={i}
+                      onClick={() => toggleSortItem(i)}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-2xl py-3 border-2 ${
+                        selectedSortItems.has(i) ? "bg-sun/30 border-sun" : "bg-cream border-cream"
+                      }`}
+                    >
+                      <span className="text-xl">{it.emoji}</span>
+                      <span className="text-[10px] font-bold text-plum text-center px-1">{it.label}</span>
+                    </button>
+                  ))}
+                </div>
                 <button
-                  key={i}
-                  onClick={() => answerGame(c)}
-                  className="text-left text-sm font-bold bg-cream rounded-xl px-3 py-2.5"
+                  onClick={submitSortGame}
+                  className="w-full bg-coral text-white font-display font-bold py-2.5 rounded-xl text-sm"
                 >
-                  {c.text}
+                  Submit
                 </button>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(game.choices || []).map((c, i) => (
+                  <button
+                    key={i}
+                    onClick={() => answerGame(c)}
+                    className="text-left text-sm font-bold bg-cream rounded-xl px-3 py-2.5"
+                  >
+                    {c.text}
+                  </button>
+                ))}
+              </div>
+            )
           ) : (
             <div className={`rounded-xl px-3 py-2.5 text-sm font-semibold ${gameFeedback?.correct ? "bg-grass/15 text-plum" : "bg-sun/20 text-plum"}`}>
               {gameFeedback?.correct ? "Nice job! " : "Good try! "}
