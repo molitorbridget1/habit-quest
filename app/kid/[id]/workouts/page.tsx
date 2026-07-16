@@ -23,6 +23,7 @@ type Workout = {
   parent_id?: string;
   age_groups?: string[];
   coach_type?: string | null;
+  video_url?: string | null;
 };
 
 function ageBucket(age: number): string {
@@ -124,13 +125,13 @@ function KidWorkoutsInner() {
       // 1. Workouts this child's own parent built
       const ownQuery = supabase
         .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
         .eq("parent_id", childData.parent_id);
 
       // 2. General shared workouts (not tied to a specific coach persona)
       const sharedQuery = supabase
         .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
         .eq("is_shared", true)
         .is("coach_type", null);
 
@@ -142,7 +143,7 @@ function KidWorkoutsInner() {
         queries.push(
           supabase
             .from("workouts")
-            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
             .eq("coach_type", coachKey)
         );
       }
@@ -154,7 +155,7 @@ function KidWorkoutsInner() {
         queries.push(
           supabase
             .from("workouts")
-            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type")
+            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
             .in("parent_id", coachParentIds)
         );
       }
@@ -342,6 +343,7 @@ function KidWorkoutsInner() {
                     <span className="text-[9px] font-bold bg-sun/30 text-plum px-2 py-0.5 rounded-full">{w.sport_tag}</span>
                   )}
                   <span className="text-[9px] font-bold uppercase text-plumsoft">{w.difficulty}</span>
+                  {w.video_url && <span className="text-[9px]">🎥</span>}
                   {w.is_shared && w.parent_id !== child.parent_id && (
                     <span className="text-[8px] font-bold text-sky">from another family</span>
                   )}
@@ -385,7 +387,18 @@ function KidWorkoutsInner() {
         >
           <div className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-8 max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="font-display font-bold text-lg text-plum mb-0.5">{selectedWorkout.title}</div>
-            {selectedWorkout.subtitle && <div className="text-xs text-plumsoft font-semibold mb-4">{selectedWorkout.subtitle}</div>}
+            {selectedWorkout.subtitle && <div className="text-xs text-plumsoft font-semibold mb-3">{selectedWorkout.subtitle}</div>}
+
+            {selectedWorkout.video_url && (
+              <a
+                href={selectedWorkout.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 bg-sky text-white font-display font-bold py-2.5 rounded-xl mb-4 text-sm"
+              >
+                ▶ Watch how-to video
+              </a>
+            )}
 
             <div className="flex flex-col gap-2 mb-4">
               {selectedWorkout.exercises.map((ex, i) => {

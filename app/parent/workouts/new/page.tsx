@@ -27,6 +27,7 @@ export default function NewWorkoutPage() {
   const [isShared, setIsShared] = useState(false);
   const [ageGroups, setAgeGroups] = useState<string[]>([]);
   const [coachType, setCoachType] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function NewWorkoutPage() {
         is_shared: isShared,
         age_groups: ageGroups,
         coach_type: coachType || null,
+        video_url: videoUrl.trim() || null,
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
@@ -145,6 +147,14 @@ export default function NewWorkoutPage() {
             </button>
           ))}
         </div>
+
+        <label className="text-xs font-bold text-plumsoft uppercase">Demo video link (optional)</label>
+        <input
+          className="w-full border-2 border-cream bg-cream rounded-xl px-3 py-2 mb-4 mt-1 text-sm font-semibold"
+          placeholder="Paste a YouTube or video link — can add later"
+          value={videoUrl}
+          onChange={(e) => setVideoUrl(e.target.value)}
+        />
 
         <label className="text-xs font-bold text-plumsoft uppercase mt-3 block mb-2">Exercises</label>
         {exercises.map((ex, i) => (
