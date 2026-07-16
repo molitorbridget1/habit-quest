@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const AVATARS = ["🦊", "🐢", "🦁", "🐼", "🦉", "🐸"];
-const SPORTS = ["Baseball", "Soccer", "Basketball", "Football", "Gymnastics", "Swimming"];
+const SPORTS = ["Baseball", "Soccer", "Basketball", "Football", "Gymnastics", "Swimming", "Golf", "Wrestling", "Volleyball", "Cheerleading", "Dance", "Track & Field", "Cross Country"];
 const STRENGTH_LEVELS = [
   { key: "beginner", label: "Just starting out" },
   { key: "intermediate", label: "Pretty active" },

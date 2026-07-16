@@ -1,11 +1,12 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type Exercise = { name: string; detail: string };
+type Exercise = { name: string; detail: string; sets?: number; rest_seconds?: number };
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const SPORT_TAGS = ["General", "Baseball", "Soccer", "Basketball", "Football", "Gymnastics"];
+const SPORT_TAGS = ["General", "Baseball", "Soccer", "Basketball", "Football", "Gymnastics", "Swimming", "Golf", "Wrestling", "Volleyball", "Cheerleading", "Dance", "Track & Field", "Cross Country"];
 const DIFFICULTIES = [
   { key: "beginner", label: "Beginner" },
   { key: "intermediate", label: "Intermediate" },
@@ -18,8 +19,19 @@ const COACH_TYPES = [
   { key: "erick", label: "Coach Erick" },
 ];
 
-export default function NewWorkoutPage() {
+export default function NewWorkoutPageWrapper() {
+  return (
+    <Suspense fallback={<main className="min-h-screen flex items-center justify-center text-plumsoft">Loading…</main>}>
+      <NewWorkoutPage />
+    </Suspense>
+  );
+}
+
+function NewWorkoutPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const forChild = searchParams.get("forChild");
+
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [sportTag, setSportTag] = useState("General");
@@ -29,6 +41,12 @@ export default function NewWorkoutPage() {
   const [coachType, setCoachType] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [childName, setChildName] = useState<string | null>(null);
+  const [scheduledDays, setScheduledDays] = useState<string[]>([]);
+
+  function toggleDay(d: string) {
+    setScheduledDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  }
 
   useEffect(() => {
     (async () => {
@@ -36,8 +54,14 @@ export default function NewWorkoutPage() {
       if (!userData.user) return;
       const { data: parentRow } = await supabase.from("parents").select("is_admin").eq("id", userData.user.id).single();
       setIsAdmin(!!parentRow?.is_admin);
+
+      if (forChild) {
+        const { data: coached } = await supabase.rpc("get_coached_children");
+        const match = (coached || []).find((c: any) => c.id === forChild);
+        setChildName(match?.name || "this child");
+      }
     })();
-  }, []);
+  }, [forChild]);
 
   function toggleAgeGroup(ag: string) {
     setAgeGroups((prev) => (prev.includes(ag) ? prev.filter((a) => a !== ag) : [...prev, ag]));
@@ -49,6 +73,13 @@ export default function NewWorkoutPage() {
   function updateExercise(i: number, field: "name" | "detail", value: string) {
     const next = [...exercises];
     next[i][field] = value;
+    setExercises(next);
+  }
+
+  function updateExerciseNumber(i: number, field: "sets" | "rest_seconds", value: string) {
+    const next = [...exercises];
+    const num = value === "" ? undefined : parseInt(value, 10);
+    next[i][field] = num;
     setExercises(next);
   }
 
@@ -78,14 +109,16 @@ export default function NewWorkoutPage() {
         subtitle: subtitle.trim() || null,
         sport_tag: sportTag === "General" ? null : sportTag,
         difficulty,
-        is_shared: isShared,
-        age_groups: ageGroups,
-        coach_type: coachType || null,
+        is_shared: forChild ? false : isShared,
+        age_groups: forChild ? [] : ageGroups,
+        coach_type: forChild ? null : (coachType || null),
         video_url: videoUrl.trim() || null,
+        assigned_child_id: forChild || null,
+        scheduled_days: forChild ? scheduledDays : [],
         exercises: cleanExercises,
       });
       if (insertError) throw insertError;
-      router.push("/parent/workouts");
+      router.push(forChild ? "/parent/coaching" : "/parent/workouts");
     } catch (err: any) {
       setError(err.message || "Something went wrong.");
     } finally {
@@ -97,7 +130,13 @@ export default function NewWorkoutPage() {
     <main className="min-h-screen flex items-center justify-center px-6 py-10">
       <form onSubmit={handleSave} className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-7">
         <h1 className="font-display text-xl font-bold text-plum mb-1">Build a workout</h1>
-        <p className="text-sm text-plumsoft mb-5">Name it something fun — kids pick these from their adventure map.</p>
+        {forChild ? (
+          <p className="text-sm text-plumsoft mb-5">
+            Building for <span className="font-bold text-coral">{childName || "…"}</span> — this goes to them only, never shared elsewhere.
+          </p>
+        ) : (
+          <p className="text-sm text-plumsoft mb-5">Name it something fun — kids pick these from their adventure map.</p>
+        )}
 
         <label className="text-xs font-bold text-plumsoft uppercase">Workout name</label>
         <input
@@ -157,32 +196,74 @@ export default function NewWorkoutPage() {
         />
 
         <label className="text-xs font-bold text-plumsoft uppercase mt-3 block mb-2">Exercises</label>
+        <p className="text-[10px] text-plumsoft mb-2">Sets and rest are optional — great for real strength programming, but leave blank for a simple single-round exercise.</p>
         {exercises.map((ex, i) => (
-          <div key={i} className="flex gap-2 mb-2">
-            <input
-              className="flex-1 border-2 border-cream bg-cream rounded-lg px-2.5 py-2 text-xs font-semibold"
-              placeholder="Jumping jacks"
-              value={ex.name}
-              onChange={(e) => updateExercise(i, "name", e.target.value)}
-            />
-            <input
-              className="w-24 border-2 border-cream bg-cream rounded-lg px-2.5 py-2 text-xs font-semibold"
-              placeholder="30 sec"
-              value={ex.detail}
-              onChange={(e) => updateExercise(i, "detail", e.target.value)}
-            />
-            {exercises.length > 1 && (
-              <button type="button" onClick={() => removeExercise(i)} className="text-coral text-lg px-1">
-                ×
-              </button>
-            )}
+          <div key={i} className="bg-cream rounded-lg p-2.5 mb-2">
+            <div className="flex gap-2 mb-1.5">
+              <input
+                className="flex-1 border-2 border-white bg-white rounded-lg px-2.5 py-2 text-xs font-semibold"
+                placeholder="Jumping jacks"
+                value={ex.name}
+                onChange={(e) => updateExercise(i, "name", e.target.value)}
+              />
+              <input
+                className="w-20 border-2 border-white bg-white rounded-lg px-2.5 py-2 text-xs font-semibold"
+                placeholder="30 sec"
+                value={ex.detail}
+                onChange={(e) => updateExercise(i, "detail", e.target.value)}
+              />
+              {exercises.length > 1 && (
+                <button type="button" onClick={() => removeExercise(i)} className="text-coral text-lg px-1">
+                  ×
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                className="w-24 border-2 border-white bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-semibold"
+                placeholder="Sets (optional)"
+                value={ex.sets ?? ""}
+                onChange={(e) => updateExerciseNumber(i, "sets", e.target.value)}
+              />
+              <input
+                type="number"
+                min={0}
+                className="w-28 border-2 border-white bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-semibold"
+                placeholder="Rest sec (optional)"
+                value={ex.rest_seconds ?? ""}
+                onChange={(e) => updateExerciseNumber(i, "rest_seconds", e.target.value)}
+              />
+            </div>
           </div>
         ))}
         <button type="button" onClick={addExercise} className="block text-xs font-bold text-sky mb-5">
           + Add exercise
         </button>
 
-        {isAdmin && (
+        {forChild && (
+          <>
+            <label className="text-xs font-bold text-plumsoft uppercase">Schedule it (optional)</label>
+            <p className="text-[10px] text-plumsoft mb-2">Pick which days this shows up on their calendar — like programming a training week.</p>
+            <div className="flex gap-1.5 flex-wrap mb-5">
+              {DAYS.map((d) => (
+                <button
+                  type="button"
+                  key={d}
+                  onClick={() => toggleDay(d)}
+                  className={`text-xs font-bold w-11 h-9 rounded-lg border-2 ${
+                    scheduledDays.includes(d) ? "bg-grass border-grass text-white" : "bg-cream border-cream text-plumsoft"
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {isAdmin && !forChild && (
           <>
             <label className="text-xs font-bold text-plumsoft uppercase">Age groups (optional — blank means all ages)</label>
             <div className="flex gap-2 flex-wrap my-2">

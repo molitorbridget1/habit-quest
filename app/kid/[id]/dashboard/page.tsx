@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { ageBucket, getAgeCopy } from "@/lib/ageCopy";
 
 type Child = {
   id: string;
@@ -9,6 +10,9 @@ type Child = {
   avatar_emoji: string;
   parent_id: string;
   difficulty_filter: string | null;
+  sport_tags: string[];
+  coaching_mode: string;
+  age: number;
 };
 type DailyLog = {
   id?: string;
@@ -70,7 +74,7 @@ export default function KidDashboard() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id, difficulty_filter")
+      .select("id, name, avatar_emoji, parent_id, difficulty_filter, sport_tags, coaching_mode, age")
       .eq("id", childId)
       .single();
     setChild(childData);
@@ -165,14 +169,32 @@ export default function KidDashboard() {
       .gte("completed_at", startOfDay.toISOString());
     const doneIds = new Set((completedToday || []).map((r: any) => r.workout_id));
 
-    let query = supabase
-      .from("workouts")
-      .select("id, title, subtitle, difficulty, parent_id, is_shared, coach_type")
-      .or(`parent_id.eq.${childData.parent_id},and(is_shared.eq.true,coach_type.is.null)`)
-      .order("created_at", { ascending: true });
+    let candidates: any[] = [];
 
-    const { data } = await query;
-    let candidates = (data || []).filter((w: any) => !doneIds.has(w.id));
+    if (childData.coaching_mode === "coach_bee" || childData.coaching_mode === "coach_erick") {
+      const coachKey = childData.coaching_mode === "coach_bee" ? "bee" : "erick";
+      const { data } = await supabase
+        .from("workouts")
+        .select("id, title, subtitle, difficulty, sport_tag")
+        .eq("coach_type", coachKey);
+      candidates = data || [];
+    } else if (childData.coaching_mode === "invite_coach") {
+      const { data } = await supabase
+        .from("workouts")
+        .select("id, title, subtitle, difficulty, sport_tag")
+        .eq("assigned_child_id", childId);
+      candidates = data || [];
+    } else {
+      const { data } = await supabase
+        .from("workouts")
+        .select("id, title, subtitle, difficulty, sport_tag, parent_id, is_shared, coach_type")
+        .or(`parent_id.eq.${childData.parent_id},and(is_shared.eq.true,coach_type.is.null)`)
+        .order("created_at", { ascending: true });
+      const kidSports = childData.sport_tags || [];
+      candidates = (data || []).filter((w: any) => (kidSports.length > 0 ? kidSports.includes(w.sport_tag) : !w.sport_tag));
+    }
+
+    candidates = candidates.filter((w: any) => !doneIds.has(w.id));
     if (childData.difficulty_filter) {
       const matching = candidates.filter((w: any) => w.difficulty === childData.difficulty_filter);
       if (matching.length > 0) candidates = matching;
@@ -281,6 +303,7 @@ export default function KidDashboard() {
   const level = Math.floor(totalXp / 100) + 1;
   const xpInLevel = totalXp % 100;
   const allDone = log.water_cups > 0 && log.veggie_done && (log.protein_selected || []).length > 0;
+  const copy = getAgeCopy(ageBucket(child.age));
 
   return (
     <main className="min-h-screen px-5 py-6 max-w-md mx-auto">
@@ -297,7 +320,7 @@ export default function KidDashboard() {
           </div>
           <div>
             <div className="font-display font-bold text-plum text-sm">Hi, {child.name}!</div>
-            <div className="text-xs text-plumsoft font-bold">Level {level} Explorer</div>
+            <div className="text-xs text-plumsoft font-bold">Level {level}{copy.levelSuffix}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -325,7 +348,7 @@ export default function KidDashboard() {
 
       {upNext && (
         <button
-          onClick={() => router.push(`/kid/${childId}/workouts?open=${upNext.id}`)}
+          onClick={() => router.push(`/kid/${childId}/workouts/${upNext.id}`)}
           className="w-full flex items-center gap-3 bg-white rounded-2xl p-3.5 shadow text-left mb-5"
         >
           <div className="w-10 h-10 min-w-[2.5rem] rounded-full bg-sky/20 flex items-center justify-center text-lg">⏭️</div>
@@ -362,7 +385,7 @@ export default function KidDashboard() {
       )}
 
       <div className="bg-white rounded-2xl p-3.5 shadow mb-5">
-        <div className="text-xs font-display font-bold text-plumsoft mb-2">How do you feel today?</div>
+        <div className="text-xs font-display font-bold text-plumsoft mb-2">{copy.moodPrompt}</div>
         <div className="flex gap-2">
           {[
             { m: "sleepy", e: "😴" },
@@ -383,7 +406,7 @@ export default function KidDashboard() {
         </div>
       </div>
 
-      <div className="font-display font-bold text-plum text-sm mb-3">Today's Adventure</div>
+      <div className="font-display font-bold text-plum text-sm mb-3">{copy.sectionTitle}</div>
 
       <div className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow mb-3">
         <div
@@ -444,8 +467,8 @@ export default function KidDashboard() {
       {allDone && (
         <div className="bg-gradient-to-r from-grass to-sky text-white rounded-2xl p-4 text-center shadow-lg mb-6">
           <div className="text-2xl mb-1">🏆</div>
-          <div className="font-display font-bold">Adventure Complete!</div>
-          <div className="text-xs opacity-90">You did every mission today. Amazing work.</div>
+          <div className="font-display font-bold">{copy.adventureComplete}</div>
+          <div className="text-xs opacity-90">{copy.adventureCompleteSub}</div>
         </div>
       )}
 

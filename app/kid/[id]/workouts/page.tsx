@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useRef, useState, Suspense } from "react";
-import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 type Child = {
@@ -11,6 +11,7 @@ type Child = {
   age: number;
   coaching_mode: string;
   difficulty_filter: string | null;
+  sport_tags: string[];
 };
 type Workout = {
   id: string;
@@ -25,13 +26,6 @@ type Workout = {
   coach_type?: string | null;
   video_url?: string | null;
 };
-
-function ageBucket(age: number): string {
-  if (age <= 7) return "5-7";
-  if (age <= 10) return "8-10";
-  if (age <= 13) return "11-13";
-  return "14-18";
-}
 type Completion = {
   id: string;
   completed_at: string;
@@ -40,12 +34,30 @@ type Completion = {
   workouts: { title: string; sport_tag: string | null } | null;
 };
 
-const XP_PER_WORKOUT = 30;
+const WORKOUT_SELECT = "id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url";
 
-function parseSeconds(detail: string): number | null {
-  const match = detail.match(/(\d+)\s*sec/i);
-  return match ? parseInt(match[1], 10) : null;
+function ageBucket(age: number): string {
+  if (age <= 7) return "5-7";
+  if (age <= 10) return "8-10";
+  if (age <= 13) return "11-13";
+  return "14-18";
 }
+
+function getWeekDates(): Date[] {
+  const now = new Date();
+  const day = now.getDay(); // 0 = Sunday
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  monday.setHours(0, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
+
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function KidWorkoutsPage() {
   return (
@@ -58,26 +70,16 @@ export default function KidWorkoutsPage() {
 function KidWorkoutsInner() {
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const childId = params.id as string;
-  const openId = searchParams.get("open");
 
   const [child, setChild] = useState<Child | null>(null);
   const [tab, setTab] = useState<"library" | "history">("library");
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [completedTodayIds, setCompletedTodayIds] = useState<Set<string>>(new Set());
-  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
-  const [weightUsed, setWeightUsed] = useState("");
-  const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [celebrate, setCelebrate] = useState(false);
+  const [weekCompletedDates, setWeekCompletedDates] = useState<Set<string>>(new Set());
   const [filterChoice, setFilterChoice] = useState("all");
-
-  const [timerSeconds, setTimerSeconds] = useState<number | null>(null);
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [timerExerciseIdx, setTimerExerciseIdx] = useState<number | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const authed = sessionStorage.getItem(`kid-session-${childId}`);
@@ -89,100 +91,57 @@ function KidWorkoutsInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [childId]);
 
-  useEffect(() => {
-    if (timerRunning && timerSeconds !== null && timerSeconds > 0) {
-      intervalRef.current = setInterval(() => {
-        setTimerSeconds((s) => (s !== null ? s - 1 : null));
-      }, 1000);
-    } else if (timerSeconds === 0) {
-      setTimerRunning(false);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerRunning]);
-
-  useEffect(() => {
-    if (openId && workouts.length > 0 && !selectedWorkout) {
-      const match = workouts.find((w) => w.id === openId);
-      if (match) openWorkout(match);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openId, workouts]);
-
   async function load() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id, age, coaching_mode, difficulty_filter")
+      .select("id, name, avatar_emoji, parent_id, age, coaching_mode, difficulty_filter, sport_tags")
       .eq("id", childId)
       .single();
     setChild(childData);
     setFilterChoice(childData?.difficulty_filter || "all");
 
     if (childData) {
-      // 1. Workouts this child's own parent built
-      const ownQuery = supabase
-        .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
-        .eq("parent_id", childData.parent_id);
+      let results: any[] = [];
 
-      // 2. General shared workouts (not tied to a specific coach persona)
-      const sharedQuery = supabase
-        .from("workouts")
-        .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
-        .eq("is_shared", true)
-        .is("coach_type", null);
-
-      const queries = [ownQuery, sharedQuery];
-
-      // 3. If this child is on a named coach persona, pull that coach's tagged library
       if (childData.coaching_mode === "coach_bee" || childData.coaching_mode === "coach_erick") {
+        // Coach persona selected: show ONLY that coach's library, nothing else
         const coachKey = childData.coaching_mode === "coach_bee" ? "bee" : "erick";
-        queries.push(
-          supabase
-            .from("workouts")
-            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
-            .eq("coach_type", coachKey)
-        );
+        const r = await supabase.from("workouts").select(WORKOUT_SELECT).eq("coach_type", coachKey);
+        results = [r];
+      } else if (childData.coaching_mode === "invite_coach") {
+        // Real coach linked: show ONLY workouts that coach built specifically for this kid
+        const r = await supabase.from("workouts").select(WORKOUT_SELECT).eq("assigned_child_id", childId);
+        results = [r];
+      } else {
+        // Parent Lead: their own workouts plus the general (non-coach) shared library
+        const ownQuery = supabase.from("workouts").select(WORKOUT_SELECT).eq("parent_id", childData.parent_id);
+        const sharedQuery = supabase.from("workouts").select(WORKOUT_SELECT).eq("is_shared", true).is("coach_type", null);
+        results = await Promise.all([ownQuery, sharedQuery]);
       }
 
-      // 4. If a real coach has been linked via invite code, pull their workouts too
-      const { data: links } = await supabase.from("coach_links").select("coach_parent_id").eq("child_id", childId);
-      const coachParentIds = (links || []).map((l: any) => l.coach_parent_id);
-      if (coachParentIds.length > 0) {
-        queries.push(
-          supabase
-            .from("workouts")
-            .select("id, title, subtitle, sport_tag, difficulty, exercises, is_shared, parent_id, age_groups, coach_type, video_url")
-            .in("parent_id", coachParentIds)
-        );
-      }
-
-      const results = await Promise.all(queries);
       const merged = new Map<string, Workout>();
       results.forEach((r) => (r.data || []).forEach((w: any) => merged.set(w.id, w)));
 
       const bucket = ageBucket(childData.age);
-      const filtered = Array.from(merged.values()).filter(
-        (w) => !w.age_groups || w.age_groups.length === 0 || w.age_groups.includes(bucket)
-      );
-      filtered.sort((a, b) => a.title.localeCompare(b.title));
-      setWorkouts(filtered);
+      const kidSports = childData.sport_tags || [];
+      let finalList = Array.from(merged.values());
+
+      if (childData.coaching_mode !== "invite_coach") {
+        finalList = finalList.filter((w) => !w.age_groups || w.age_groups.length === 0 || w.age_groups.includes(bucket));
+        finalList = finalList.filter((w) => (kidSports.length > 0 ? w.sport_tag && kidSports.includes(w.sport_tag) : !w.sport_tag));
+      }
+      // invite_coach workouts are hand-assigned to this exact kid by their coach,
+      // so we show all of them as-is rather than auto-filtering by sport/age.
+
+      finalList.sort((a, b) => a.title.localeCompare(b.title));
+      setWorkouts(finalList);
     }
 
     await refreshCompletedToday();
     await refreshHistory();
+    await refreshWeek();
     setLoading(false);
-  }
-
-  async function updateFilter(choice: string) {
-    setFilterChoice(choice);
-    await supabase
-      .from("children")
-      .update({ difficulty_filter: choice === "all" ? null : choice })
-      .eq("id", childId);
   }
 
   async function refreshCompletedToday() {
@@ -206,63 +165,36 @@ function KidWorkoutsInner() {
     setCompletions((data as any) || []);
   }
 
-  function openWorkout(w: Workout) {
-    setSelectedWorkout(w);
-    setWeightUsed("");
-    setNotes("");
-    resetTimer();
+  async function refreshWeek() {
+    const weekDates = getWeekDates();
+    const start = weekDates[0];
+    const end = new Date(weekDates[6]);
+    end.setHours(23, 59, 59, 999);
+    const { data } = await supabase
+      .from("workout_completions")
+      .select("completed_at")
+      .eq("child_id", childId)
+      .gte("completed_at", start.toISOString())
+      .lte("completed_at", end.toISOString());
+    const dateSet = new Set((data || []).map((r: any) => new Date(r.completed_at).toDateString()));
+    setWeekCompletedDates(dateSet);
   }
 
-  function startTimer(idx: number, seconds: number) {
-    setTimerExerciseIdx(idx);
-    setTimerSeconds(seconds);
-    setTimerRunning(true);
-  }
-
-  function pauseTimer() {
-    setTimerRunning(false);
-  }
-
-  function resumeTimer() {
-    if (timerSeconds && timerSeconds > 0) setTimerRunning(true);
-  }
-
-  function resetTimer() {
-    setTimerRunning(false);
-    setTimerSeconds(null);
-    setTimerExerciseIdx(null);
-  }
-
-  async function completeWorkout() {
-    if (!selectedWorkout) return;
-    await supabase.from("workout_completions").insert({
-      child_id: childId,
-      workout_id: selectedWorkout.id,
-      weight_used: weightUsed.trim() || null,
-      notes: notes.trim() || null,
-    });
-    await supabase.from("xp_events").insert({ child_id: childId, source: "workout", amount: XP_PER_WORKOUT });
-    await refreshCompletedToday();
-    await refreshHistory();
-    setSelectedWorkout(null);
-    resetTimer();
-    setCelebrate(true);
-    setTimeout(() => setCelebrate(false), 900);
+  async function updateFilter(choice: string) {
+    setFilterChoice(choice);
+    await supabase.from("children").update({ difficulty_filter: choice === "all" ? null : choice }).eq("id", childId);
   }
 
   if (loading || !child) {
     return <main className="min-h-screen flex items-center justify-center text-plumsoft">Loading workouts…</main>;
   }
 
+  const weekDates = getWeekDates();
+  const todayStr = new Date().toDateString();
+
   return (
     <main className="min-h-screen px-5 py-6 max-w-md mx-auto">
-      {celebrate && (
-        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-          <div className="text-6xl animate-bounce">🎉</div>
-        </div>
-      )}
-
-      <div className="flex justify-between items-center mb-5">
+      <div className="flex justify-between items-center mb-2">
         <div>
           <div className="font-display font-bold text-lg text-plum">Workouts</div>
           <div className="text-xs text-plumsoft font-semibold">{child.name}'s library</div>
@@ -271,26 +203,48 @@ function KidWorkoutsInner() {
           ← Dashboard
         </button>
       </div>
-      <div className="text-right -mt-3 mb-3">
+      <div className="text-right -mt-1 mb-4">
         <button onClick={() => router.push("/parent")} className="text-[10px] font-bold text-plumsoft">
           Parent view →
         </button>
       </div>
 
+      <div className="bg-white rounded-2xl p-4 shadow mb-5">
+        <div className="text-xs font-display font-bold text-plumsoft mb-3">This week</div>
+        <div className="flex justify-between">
+          {weekDates.map((d, i) => {
+            const done = weekCompletedDates.has(d.toDateString());
+            const isToday = d.toDateString() === todayStr;
+            return (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <span className="text-[9px] font-bold text-plumsoft">{DAY_LABELS[i]}</span>
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                    done
+                      ? "bg-grass text-white"
+                      : isToday
+                      ? "bg-cream border-2 border-coral text-plum"
+                      : "bg-cream text-plumsoft"
+                  }`}
+                >
+                  {done ? "✓" : d.getDate()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex gap-2 bg-white rounded-full p-1 shadow mb-5 w-fit">
         <button
           onClick={() => setTab("library")}
-          className={`text-xs font-display font-bold px-4 py-2 rounded-full ${
-            tab === "library" ? "bg-plum text-white" : "text-plumsoft"
-          }`}
+          className={`text-xs font-display font-bold px-4 py-2 rounded-full ${tab === "library" ? "bg-plum text-white" : "text-plumsoft"}`}
         >
           Library
         </button>
         <button
           onClick={() => setTab("history")}
-          className={`text-xs font-display font-bold px-4 py-2 rounded-full ${
-            tab === "history" ? "bg-plum text-white" : "text-plumsoft"
-          }`}
+          className={`text-xs font-display font-bold px-4 py-2 rounded-full ${tab === "history" ? "bg-plum text-white" : "text-plumsoft"}`}
         >
           History
         </button>
@@ -317,40 +271,40 @@ function KidWorkoutsInner() {
           {workouts
             .filter((w) => filterChoice === "all" || w.difficulty === filterChoice)
             .map((w) => {
-            const done = completedTodayIds.has(w.id);
-            return (
-              <button
-                key={w.id}
-                onClick={() => openWorkout(w)}
-                className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow text-left"
-              >
-                <div
-                  className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
-                    done ? "bg-grass border-grass text-white" : "bg-white border-cream"
-                  }`}
+              const done = completedTodayIds.has(w.id);
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => router.push(`/kid/${childId}/workouts/${w.id}`)}
+                  className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow text-left"
                 >
-                  {done ? "✓" : "🏋️"}
-                </div>
-                <div className="flex-1">
-                  <div className="font-display font-bold text-sm text-plum">{w.title}</div>
-                  <div className="text-xs text-plumsoft font-semibold">
-                    {w.subtitle || `${w.exercises.length} exercises`}
-                    {done ? " · Done today" : ""}
+                  <div
+                    className={`w-12 h-12 min-w-[3rem] rounded-full flex items-center justify-center text-xl border-2 ${
+                      done ? "bg-grass border-grass text-white" : "bg-white border-cream"
+                    }`}
+                  >
+                    {done ? "✓" : "🏋️"}
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  {w.sport_tag && (
-                    <span className="text-[9px] font-bold bg-sun/30 text-plum px-2 py-0.5 rounded-full">{w.sport_tag}</span>
-                  )}
-                  <span className="text-[9px] font-bold uppercase text-plumsoft">{w.difficulty}</span>
-                  {w.video_url && <span className="text-[9px]">🎥</span>}
-                  {w.is_shared && w.parent_id !== child.parent_id && (
-                    <span className="text-[8px] font-bold text-sky">from another family</span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
+                  <div className="flex-1">
+                    <div className="font-display font-bold text-sm text-plum">{w.title}</div>
+                    <div className="text-xs text-plumsoft font-semibold">
+                      {w.subtitle || `${w.exercises.length} exercises`}
+                      {done ? " · Done today" : ""}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {w.sport_tag && (
+                      <span className="text-[9px] font-bold bg-sun/30 text-plum px-2 py-0.5 rounded-full">{w.sport_tag}</span>
+                    )}
+                    <span className="text-[9px] font-bold uppercase text-plumsoft">{w.difficulty}</span>
+                    {w.video_url && <span className="text-[9px]">🎥</span>}
+                    {w.is_shared && w.parent_id !== child.parent_id && (
+                      <span className="text-[8px] font-bold text-sky">from another family</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
         </div>
       )}
 
@@ -374,97 +328,6 @@ function KidWorkoutsInner() {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {selectedWorkout && (
-        <div
-          className="fixed inset-0 bg-plum/40 flex items-end justify-center z-50"
-          onClick={() => {
-            setSelectedWorkout(null);
-            resetTimer();
-          }}
-        >
-          <div className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-8 max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="font-display font-bold text-lg text-plum mb-0.5">{selectedWorkout.title}</div>
-            {selectedWorkout.subtitle && <div className="text-xs text-plumsoft font-semibold mb-3">{selectedWorkout.subtitle}</div>}
-
-            {selectedWorkout.video_url && (
-              <a
-                href={selectedWorkout.video_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 bg-sky text-white font-display font-bold py-2.5 rounded-xl mb-4 text-sm"
-              >
-                ▶ Watch how-to video
-              </a>
-            )}
-
-            <div className="flex flex-col gap-2 mb-4">
-              {selectedWorkout.exercises.map((ex, i) => {
-                const secs = parseSeconds(ex.detail);
-                const isActive = timerExerciseIdx === i;
-                return (
-                  <div key={i} className="bg-cream rounded-xl px-3 py-2.5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold text-plum">{ex.name}</span>
-                      <span className="text-xs font-bold text-plumsoft">{ex.detail}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      {isActive && timerSeconds !== null ? (
-                        <>
-                          <span className="font-display font-extrabold text-2xl text-coral">{timerSeconds}s</span>
-                          {timerRunning ? (
-                            <button onClick={pauseTimer} className="text-xs font-bold bg-white px-3 py-1.5 rounded-full shadow">Pause</button>
-                          ) : (
-                            <button onClick={resumeTimer} className="text-xs font-bold bg-white px-3 py-1.5 rounded-full shadow">
-                              {timerSeconds === 0 ? "Done!" : "Resume"}
-                            </button>
-                          )}
-                          <button onClick={resetTimer} className="text-xs font-bold text-plumsoft px-2">Reset</button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => startTimer(i, secs || 30)}
-                          className="text-xs font-bold bg-sky text-white px-3 py-1.5 rounded-full"
-                        >
-                          ⏱ {secs ? `Start ${secs}s` : "Start timer"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <label className="text-[10px] font-bold text-plumsoft uppercase">Added weight? (optional)</label>
-            <input
-              className="w-full border-2 border-cream bg-cream rounded-xl px-3 py-2 mb-2 mt-1 text-sm font-semibold"
-              placeholder="e.g. 5 lb dumbbells"
-              value={weightUsed}
-              onChange={(e) => setWeightUsed(e.target.value)}
-            />
-            <label className="text-[10px] font-bold text-plumsoft uppercase">Notes (optional)</label>
-            <input
-              className="w-full border-2 border-cream bg-cream rounded-xl px-3 py-2 mb-4 mt-1 text-sm font-semibold"
-              placeholder="How'd it feel?"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-
-            <button onClick={completeWorkout} className="w-full bg-coral text-white font-display font-bold py-3 rounded-xl mb-2">
-              I finished this! (+{XP_PER_WORKOUT} XP)
-            </button>
-            <button
-              onClick={() => {
-                setSelectedWorkout(null);
-                resetTimer();
-              }}
-              className="w-full text-plumsoft font-bold text-sm py-2"
-            >
-              Close
-            </button>
-          </div>
         </div>
       )}
     </main>
