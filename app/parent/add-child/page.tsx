@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { computeAge } from "@/lib/ageCopy";
 
 const AVATARS = ["🦊", "🐢", "🦁", "🐼", "🦉", "🐸"];
 const SPORTS = ["Baseball", "Soccer", "Basketball", "Football", "Gymnastics", "Swimming", "Golf", "Wrestling", "Volleyball", "Cheerleading", "Dance", "Track & Field", "Cross Country"];
@@ -20,7 +21,7 @@ const COACHING_MODES = [
 export default function AddChildPage() {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [age, setAge] = useState(8);
+  const [birthdate, setBirthdate] = useState("");
   const [avatar, setAvatar] = useState(AVATARS[0]);
   const [pin, setPin] = useState("");
   const [sports, setSports] = useState<string[]>([]);
@@ -70,13 +71,18 @@ export default function AddChildPage() {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("Not logged in.");
       if (!/^\d{4}$/.test(pin)) throw new Error("PIN must be exactly 4 digits.");
+      if (!birthdate) throw new Error("Add their birthday so we can keep their age accurate.");
+
+      const computedAge = computeAge(birthdate, 8);
+      if (computedAge < 5 || computedAge > 18) throw new Error("This app is built for kids ages 5-18.");
 
       const code = coachingMode === "invite_coach" ? generateCode() : null;
 
       const { error: insertError } = await supabase.from("children").insert({
         parent_id: userData.user.id,
         name,
-        age,
+        age: computedAge,
+        birthdate,
         avatar_emoji: avatar,
         pin,
         sport_tags: sports,
@@ -112,14 +118,13 @@ export default function AddChildPage() {
           required
         />
 
-        <label className="text-xs font-bold text-plumsoft uppercase">Age</label>
+        <label className="text-xs font-bold text-plumsoft uppercase">Birthday</label>
+        <p className="text-[11px] text-plumsoft mb-1.5">We calculate their age automatically from this — it'll always stay accurate as they grow.</p>
         <input
-          type="number"
-          min={5}
-          max={18}
+          type="date"
           className="w-full border-2 border-cream bg-cream rounded-xl px-3 py-2 mb-4 mt-1 text-sm font-semibold"
-          value={age}
-          onChange={(e) => setAge(Number(e.target.value))}
+          value={birthdate}
+          onChange={(e) => setBirthdate(e.target.value)}
           required
         />
 

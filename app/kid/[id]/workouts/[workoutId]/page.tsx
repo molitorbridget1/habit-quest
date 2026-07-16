@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ageBucket, getAgeCopy } from "@/lib/ageCopy";
+import { ageBucket, getAgeCopy, computeAge } from "@/lib/ageCopy";
 
 type Workout = {
   id: string;
@@ -76,8 +76,8 @@ export default function WorkoutDetailPage() {
       .single();
     setWorkout(workoutData as any);
 
-    const { data: childData } = await supabase.from("children").select("age").eq("id", childId).single();
-    if (childData) setCopy(getAgeCopy(ageBucket(childData.age)));
+    const { data: childData } = await supabase.from("children").select("age, birthdate").eq("id", childId).single();
+    if (childData) setCopy(getAgeCopy(ageBucket(computeAge(childData.birthdate, childData.age))));
 
     const { data: lastCompletion } = await supabase
       .from("workout_completions")

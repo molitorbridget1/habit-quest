@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { computeAge } from "@/lib/ageCopy";
 
 type Child = {
   id: string;
@@ -9,6 +10,7 @@ type Child = {
   avatar_emoji: string;
   parent_id: string;
   age: number;
+  birthdate: string | null;
   coaching_mode: string;
   difficulty_filter: string | null;
   sport_tags: string[];
@@ -95,7 +97,7 @@ function KidWorkoutsInner() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id, age, coaching_mode, difficulty_filter, sport_tags")
+      .select("id, name, avatar_emoji, parent_id, age, birthdate, coaching_mode, difficulty_filter, sport_tags")
       .eq("id", childId)
       .single();
     setChild(childData);
@@ -115,7 +117,11 @@ function KidWorkoutsInner() {
         results = [r];
       } else {
         // Parent Lead: their own workouts plus the general (non-coach) shared library
-        const ownQuery = supabase.from("workouts").select(WORKOUT_SELECT).eq("parent_id", childData.parent_id);
+        const ownQuery = supabase
+          .from("workouts")
+          .select(WORKOUT_SELECT)
+          .eq("parent_id", childData.parent_id)
+          .or(`assigned_child_id.is.null,assigned_child_id.eq.${childId}`);
         const sharedQuery = supabase.from("workouts").select(WORKOUT_SELECT).eq("is_shared", true).is("coach_type", null);
         results = await Promise.all([ownQuery, sharedQuery]);
       }
@@ -123,7 +129,7 @@ function KidWorkoutsInner() {
       const merged = new Map<string, Workout>();
       results.forEach((r) => (r.data || []).forEach((w: any) => merged.set(w.id, w)));
 
-      const bucket = ageBucket(childData.age);
+      const bucket = ageBucket(computeAge(childData.birthdate, childData.age));
       const kidSports = childData.sport_tags || [];
       let finalList = Array.from(merged.values());
 

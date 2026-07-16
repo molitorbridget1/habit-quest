@@ -16,6 +16,12 @@ export default function KidPinPage() {
     setLoading(true);
     setError("");
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        setError("A parent needs to log in on this device first.");
+        setLoading(false);
+        return;
+      }
       const { data, error: fetchError } = await supabase
         .from("children")
         .select("id, pin")
@@ -50,6 +56,15 @@ export default function KidPinPage() {
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
         />
         {error && <p className="text-coral text-sm font-semibold mb-4">{error}</p>}
+        {error.includes("log in") && (
+          <button
+            type="button"
+            onClick={() => router.push("/login")}
+            className="w-full bg-plum text-white font-display font-bold py-3 rounded-xl mb-3"
+          >
+            Log in as parent
+          </button>
+        )}
         <button
           type="submit"
           disabled={loading || pin.length !== 4}

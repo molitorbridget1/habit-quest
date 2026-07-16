@@ -1,3 +1,15 @@
+export function computeAge(birthdate: string | null | undefined, fallbackAge: number | null | undefined): number {
+  if (birthdate) {
+    const bd = new Date(birthdate);
+    const today = new Date();
+    let age = today.getFullYear() - bd.getFullYear();
+    const monthDiff = today.getMonth() - bd.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < bd.getDate())) age--;
+    return age;
+  }
+  return fallbackAge ?? 8;
+}
+
 export function ageBucket(age: number): string {
   if (age <= 7) return "5-7";
   if (age <= 10) return "8-10";
@@ -43,7 +55,7 @@ export function getAgeCopy(bucket: string): AgeCopy {
         workoutCompleteHeadline: "Solid work today.",
         moodPrompt: "How are you feeling today?",
       };
-    default:
+    default: // 14-18
       return {
         sectionTitle: "Today's Goals",
         levelSuffix: "",

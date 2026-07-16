@@ -46,6 +46,8 @@ function NewWorkoutPage() {
   const [ownKids, setOwnKids] = useState<{ id: string; name: string; avatar_emoji: string }[]>([]);
   const [coachedKids, setCoachedKids] = useState<{ id: string; name: string }[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<string>("all");
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   function toggleDay(d: string) {
     setScheduledDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -60,6 +62,14 @@ function NewWorkoutPage() {
 
       const { data: coached } = await supabase.rpc("get_coached_children");
       setCoachedKids((coached || []).map((c: any) => ({ id: c.id, name: c.name })));
+
+      const { data: templateData } = await supabase
+        .from("workouts")
+        .select("id, title, subtitle, sport_tag, difficulty, exercises")
+        .or(`parent_id.eq.${userData.user.id},is_shared.eq.true`)
+        .order("title", { ascending: true })
+        .limit(60);
+      setTemplates(templateData || []);
 
       if (forChild) {
         const match = (coached || []).find((c: any) => c.id === forChild);
@@ -76,6 +86,15 @@ function NewWorkoutPage() {
 
   function toggleAgeGroup(ag: string) {
     setAgeGroups((prev) => (prev.includes(ag) ? prev.filter((a) => a !== ag) : [...prev, ag]));
+  }
+
+  function applyTemplate(t: any) {
+    setTitle(t.title + " (copy)");
+    setSubtitle(t.subtitle || "");
+    setSportTag(t.sport_tag || "General");
+    setDifficulty(t.difficulty || "intermediate");
+    setExercises(t.exercises && t.exercises.length > 0 ? t.exercises : [{ name: "", detail: "" }]);
+    setShowTemplates(false);
   }
   const [exercises, setExercises] = useState<Exercise[]>([{ name: "", detail: "" }]);
   const [error, setError] = useState("");
@@ -197,6 +216,33 @@ function NewWorkoutPage() {
               ))}
             </div>
           </>
+        )}
+
+        {templates.length > 0 && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="text-xs font-bold text-sky"
+            >
+              {showTemplates ? "Hide" : "📋 Start from an existing workout"}
+            </button>
+            {showTemplates && (
+              <div className="mt-2 max-h-48 overflow-y-auto bg-cream rounded-xl p-2">
+                {templates.map((t) => (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => applyTemplate(t)}
+                    className="block w-full text-left text-xs font-semibold text-plum bg-white rounded-lg px-3 py-2 mb-1.5"
+                  >
+                    {t.title}
+                    {t.subtitle && <span className="text-plumsoft"> — {t.subtitle}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         <label className="text-xs font-bold text-plumsoft uppercase">Workout name</label>

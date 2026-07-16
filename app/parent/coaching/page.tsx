@@ -66,9 +66,15 @@ export default function CoachingPage() {
           </div>
           <Link
             href={`/parent/workouts/new?forChild=${k.id}`}
-            className="block text-center bg-coral text-white font-display font-bold py-2.5 rounded-xl text-sm"
+            className="block text-center bg-coral text-white font-display font-bold py-2.5 rounded-xl text-sm mb-2"
           >
             + Build a workout for {k.name}
+          </Link>
+          <Link
+            href={`/parent/coaching/${k.id}`}
+            className="block text-center bg-white border-2 border-grass text-grass font-display font-bold py-2.5 rounded-xl text-sm"
+          >
+            📅 View schedule
           </Link>
         </div>
       ))}

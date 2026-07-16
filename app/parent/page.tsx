@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { computeAge } from "@/lib/ageCopy";
 
-type Child = { id: string; name: string; age: number; avatar_emoji: string };
+type Child = { id: string; name: string; age: number; birthdate: string | null; avatar_emoji: string };
 
 export default function ParentDashboard() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function ParentDashboard() {
       }
       const { data: kids } = await supabase
         .from("children")
-        .select("id, name, age, avatar_emoji")
+        .select("id, name, age, birthdate, avatar_emoji")
         .eq("parent_id", userData.user.id)
         .order("created_at", { ascending: true });
 
@@ -105,7 +106,7 @@ export default function ParentDashboard() {
               </div>
               <div>
                 <div className="font-display font-bold text-plum">{c.name}</div>
-                <div className="text-xs text-plumsoft font-semibold">Age {c.age}</div>
+                <div className="text-xs text-plumsoft font-semibold">Age {computeAge(c.birthdate, c.age)}</div>
               </div>
             </div>
             <Link href={`/parent/children/${c.id}/edit`} className="text-[10px] font-bold text-plumsoft">

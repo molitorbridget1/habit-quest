@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ageBucket, getAgeCopy } from "@/lib/ageCopy";
+import { ageBucket, getAgeCopy, computeAge } from "@/lib/ageCopy";
 
 type Child = {
   id: string;
@@ -13,6 +13,7 @@ type Child = {
   sport_tags: string[];
   coaching_mode: string;
   age: number;
+  birthdate: string | null;
 };
 type DailyLog = {
   id?: string;
@@ -74,7 +75,7 @@ export default function KidDashboard() {
     setLoading(true);
     const { data: childData } = await supabase
       .from("children")
-      .select("id, name, avatar_emoji, parent_id, difficulty_filter, sport_tags, coaching_mode, age")
+      .select("id, name, avatar_emoji, parent_id, difficulty_filter, sport_tags, coaching_mode, age, birthdate")
       .eq("id", childId)
       .single();
     setChild(childData);
@@ -187,11 +188,13 @@ export default function KidDashboard() {
     } else {
       const { data } = await supabase
         .from("workouts")
-        .select("id, title, subtitle, difficulty, sport_tag, parent_id, is_shared, coach_type")
+        .select("id, title, subtitle, difficulty, sport_tag, parent_id, is_shared, coach_type, assigned_child_id")
         .or(`parent_id.eq.${childData.parent_id},and(is_shared.eq.true,coach_type.is.null)`)
         .order("created_at", { ascending: true });
       const kidSports = childData.sport_tags || [];
-      candidates = (data || []).filter((w: any) => (kidSports.length > 0 ? kidSports.includes(w.sport_tag) : !w.sport_tag));
+      candidates = (data || [])
+        .filter((w: any) => w.parent_id !== childData.parent_id || !w.assigned_child_id || w.assigned_child_id === childId)
+        .filter((w: any) => (kidSports.length > 0 ? kidSports.includes(w.sport_tag) : !w.sport_tag));
     }
 
     candidates = candidates.filter((w: any) => !doneIds.has(w.id));
@@ -303,7 +306,7 @@ export default function KidDashboard() {
   const level = Math.floor(totalXp / 100) + 1;
   const xpInLevel = totalXp % 100;
   const allDone = log.water_cups > 0 && log.veggie_done && (log.protein_selected || []).length > 0;
-  const copy = getAgeCopy(ageBucket(child.age));
+  const copy = getAgeCopy(ageBucket(computeAge(child.birthdate, child.age)));
 
   return (
     <main className="min-h-screen px-5 py-6 max-w-md mx-auto">
